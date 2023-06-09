@@ -116,6 +116,7 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 	if err := p.Process(path, &details, processor); err != nil {
 		log.Error(err)
 	}
+	log.Infof("Completed parsing for %s", path)
 }
 
 func main() {
@@ -124,6 +125,7 @@ func main() {
 		config   *c.Config
 		err      error
 	)
+	log.SetLevel(log.DebugLevel)
 	sigc := make(chan os.Signal, 1)
 	done := make(chan bool)
 	signal.Notify(sigc, os.Interrupt)
@@ -146,7 +148,6 @@ func main() {
 		log.Fatalf("Config file is invalid or doesn't exist. %q", err)
 		os.Exit(1)
 	}
-	log.SetLevel(log.DebugLevel)
 
 	log.Debug(fmt.Sprintf("%+v", config))
 	log.Info("Starting watchers")
