@@ -11,6 +11,17 @@ then sort the images to a new workbench location based on their filetype.
 This program represents an idea to enhance that for managing multiple filetypes
 based on rules defined against the mimetype for that file (group or category).
 
+## Execution
+
+Create a [config.yaml](./config.yaml) using the configuration settings below
+as a guide then run as:
+
+```bash
+$ ./importmanager -config config.yaml
+```
+
+You may also define this as a `systemd --user` service.
+
 ## Configuration
 
 There are two primary sections to the configuration file, `watch` and
