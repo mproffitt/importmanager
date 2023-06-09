@@ -25,7 +25,7 @@ func setupWatches(config *c.Config) {
 	channels := make([]chan notify.EventInfo, len(config.Watch))
 	for i := 0; i < len(config.Watch); i++ {
 		channels[i] = make(chan notify.EventInfo, 1)
-		go func(path string, processors []c.Processor, channel chan notify.EventInfo) {
+		go func(path string, channel chan notify.EventInfo) {
 			if err := notify.Watch(path, channel, notify.All, notify.InCloseWrite); err != nil {
 				log.Fatal(err)
 				return
@@ -51,17 +51,20 @@ func setupWatches(config *c.Config) {
 							}
 						}
 					}
-				case <-time.After(5 * time.Second):
+				case <-time.After(config.DelayInSeconds * time.Second):
+					// TODO: when moving large numbers of files, the number of paths
+					// may be fairly extensive. Probably want to implement a queue
+					// here to handle files in batches and prevent overloading
 					for p, e := range paths {
 						// Wait 5 seconds after last event before handling
 						if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
 							delete(paths, p)
-							go handlePath(p, e.details, processors, config.CleanupZeroByte)
+							go handlePath(p, e.details, config.Processors, config.CleanupZeroByte)
 						}
 					}
 				}
 			}
-		}(config.Watch[i], config.Processors, channels[i])
+		}(config.Watch[i], channels[i])
 	}
 }
 
@@ -107,9 +110,11 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 			log.Errorf("No processor defined for type '%s | %s | %s'", details.Type, details.SubClass, details.Catagory)
 			return
 		}
+	}
 
-		log.Infof("Found processor %s for path %s", processor.String(), path)
-		p.Process(path, &details, processor)
+	log.Infof("Found processor '%s' for path %s", processor.String(), path)
+	if err := p.Process(path, &details, processor); err != nil {
+		log.Error(err)
 	}
 }
 

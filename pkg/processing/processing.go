@@ -1,10 +1,10 @@
 package processing
 
 import (
-	"fmt"
+	"bytes"
+	"html/template"
 	"os"
 	"os/user"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,18 +13,38 @@ import (
 	exif "github.com/barasher/go-exiftool"
 	c "github.com/mproffitt/importmanager/pkg/config"
 	"github.com/mproffitt/importmanager/pkg/mime"
+	log "github.com/sirupsen/logrus"
 	m "hg.sr.ht/~dchapes/mode"
 )
 
 // Process start the processing for the given path
 func Process(path string, details *mime.Details, processor *c.Processor) (err error) {
+	log.Infof("Parsing path properties for '%s'", processor.Type)
+	if processor.Properties == nil {
+		(*processor).Properties = make(map[string]string)
+	}
+
+	if strings.Contains(processor.Path, "{{.date}}") {
+		processor.Properties["include-date-directory"] = "true"
+	}
+
+	if strings.Contains(processor.Path, "{{.ext}}") {
+		processor.Properties["extension-directory"] = "true"
+	}
+
+	if strings.Contains(processor.Path, "{{.ucext}}") {
+		processor.Properties["uppercase-extension-directory"] = "true"
+	}
+
 	var dest string
 	dest, err = preProcess(path, processor.Path, details, processor)
 	if err != nil {
 		return
 	}
 
-	if isBuiltIn(processor.Type) {
+	log.Infof("Checking processor type '%s'", processor.Handler)
+	if isBuiltIn(processor.Handler) {
+		log.Info("Using builtin handler")
 		if err = builtIn(path, dest, details, processor); err != nil {
 			return
 		}
@@ -44,32 +64,37 @@ func isBuiltIn(pt string) bool {
 }
 
 func builtIn(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
-	dest = path.Join(dest, path.Base(source))
-	switch processor.Type {
+	switch processor.Handler {
 	case "copy":
-		pcopy(source, dest, details, processor)
+		err = pcopy(source, dest, details, processor)
 	case "move":
-		pmove(source, dest, details, processor)
+		err = pmove(source, dest, details, processor)
 	case "extract":
-		pextract(source, dest, details, processor)
+		err = pextract(source, dest, details, processor)
 	case "install":
-		pinstall(source, dest, details, processor)
+		err = pinstall(source, dest, details, processor)
 	case "delete":
-		pdelete(source)
+		err = pdelete(source)
 	}
 	return
 }
 
+type P map[string]interface{}
+
 func preProcess(path, dest string, details *mime.Details, processor *c.Processor) (string, error) {
-	var fmtArgs []string = make([]string, 0)
+	log.Infof("Triggering preProcessing for '%s'", processor.Type)
+	var p P = P{
+		"ext": strings.Replace(details.Extension, ".", "", 1),
+	}
 	for key, value := range processor.Properties {
 		switch strings.ToLower(key) {
-		case "uppercase-extension":
+		case "uppercase-extension-directory":
 			if b, _ := strconv.ParseBool(value); !b {
 				continue
 			}
 			var ext string = strings.ToUpper(details.Extension)
-			fmtArgs = append(fmtArgs, []string{"ext", strings.Replace(ext, ".", "", 1)}...)
+			p["ucext"] = strings.Replace(ext, ".", "", 1)
+
 		case "include-date-directory":
 			if b, _ := strconv.ParseBool(value); !b {
 				continue
@@ -99,10 +124,11 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 					}
 				}
 			}
-			fmtArgs = append(fmtArgs, []string{"date", date}...)
+			p["date"] = date
 		}
 	}
 
+	var err error
 	if strings.HasPrefix(path, "~/") {
 		var (
 			usr, _ = user.Current()
@@ -110,11 +136,15 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 		)
 		dest = filepath.Join(dir, dest[2:])
 	}
-	// create the destination directory
-	dest = format(dest, fmtArgs...)
-	if err := os.MkdirAll(dest, 0750); err != nil {
+
+	if dest, err = formatT(dest, p); err != nil {
 		return "", err
 	}
+
+	if err = os.MkdirAll(dest, 0750); err != nil {
+		return "", err
+	}
+
 	return dest, nil
 }
 
@@ -149,7 +179,12 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 			}
 		case "setexec":
 			if b, _ := strconv.ParseBool(v); !b {
-				continue
+				// We reuse `setexec` property when coming from
+				// `install` - probably other places will too.
+				if _, err := os.Stat(v); !os.IsNotExist(err) {
+					continue
+				}
+				path = v
 			}
 
 			var set m.Set
@@ -164,9 +199,14 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 	return
 }
 
-func format(format string, args ...string) string {
-	r := strings.NewReplacer(args...)
-	return fmt.Sprint(r.Replace(format))
+func formatT(format string, args map[string]interface{}) (formatted string, err error) {
+	log.Debugf("Templating '%s' with %+v", format, args)
+	t := template.Must(template.New("").Parse(format))
+	var doc bytes.Buffer
+	if err = t.Execute(&doc, args); err == nil {
+		formatted = doc.String()
+	}
+	return
 }
 
 func exifData(path string) (map[string]interface{}, error) {

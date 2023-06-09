@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	a "github.com/codeclysm/extract/v3"
@@ -47,42 +48,46 @@ func pextract(source, dest string, details *mime.Details, processor *c.Processor
 	var (
 		file     *os.File
 		basename string = path.Base(source)
-		untar    bool   = false
 	)
+	log.Debugf("Stripping extension '%s'", details.Extension)
 	basename = strings.TrimSuffix(basename, details.Extension)
 	if strings.HasSuffix(basename, ".tar") {
 		basename = strings.TrimSuffix(basename, ".tar")
-		untar = true
 	}
-
-	if untar {
-		if file, err = os.Open(source); err != nil {
-			return
-		}
-		defer file.Close()
-		var tmpdest string = filepath.Join("/tmp", path.Base(dest)+".tar")
-		if err = a.Archive(context.TODO(), file, tmpdest, nil); err != nil {
-			return
-		}
-		source = tmpdest
-	}
-
-	if err = file.Close(); err != nil {
-		return
-	}
+	dest = filepath.Join(dest, basename)
 
 	if file, err = os.Open(source); err != nil {
 		return
 	}
 	defer file.Close()
 
+	log.Infof("Extracting '%s' to '%s'", source, dest)
 	err = a.Archive(context.TODO(), file, dest, nil)
 	return
 }
 
-func pinstall(source, dest string, details *mime.Details, processor *c.Processor) {}
+func pinstall(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+	var basename string = path.Base(source)
+	if b, _ := strconv.ParseBool(processor.Properties["strip-extension"]); b {
+		basename = strings.TrimSuffix(basename, details.Extension)
 
-func pdelete(source string) {
+		if b, _ := strconv.ParseBool(processor.Properties["lowercase-destination"]); b {
+			basename = strings.ToLower(basename)
+		}
+	}
+	dest = filepath.Join(dest, basename)
+
+	// To protect the overall system, we only "install" AppImages and scripts which are
+	// "installed" by moving them to ~/bin and setting the executable flag
+	if err = pmove(source, dest, details, processor); err == nil {
+		// this is handled by the post processor
+		processor.Properties["setexec"] = dest
+	}
+	return
+}
+
+func pdelete(source string) (err error) {
 	log.Infof("Deleting path '%s'.", source)
 	os.Remove(source)
+	return
 }

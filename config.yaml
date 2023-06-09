@@ -7,10 +7,22 @@ cleanupZeroByte: true
 
 # The set of locations on disk to watch
 watch:
-  - /home/mproffitt/Descargas
-  - /home/mproffitt/Imágenes/input
+  - ~/Descargas
+  - ~/Imágenes/input
 
 processors:
   - type: image/x-xcf
     handler: move
-    path: /home/mproffitt/Imágenes/workbench/xcf
+    path: ~/Imágenes/workbench/xcf
+  - type: application/gzip
+    handler: extract
+    path: ~/test/{{.date}}
+  - type: application/x-executable
+    handler: install
+    path: /home/mproffitt/bin
+    properties:
+      lowercase-destination: true
+      strip-extension: true
+  - type: image/x-dcraw
+    handler: move
+    path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}
