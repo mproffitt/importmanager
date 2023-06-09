@@ -23,6 +23,8 @@ There are two primary sections to the configuration file, `watch` and
   notify.All | notify.InCloseWrite
   ```
 
+  See [notify](https://pkg.go.dev/github.com/rjeczalik/notify)
+
   If directories start with `~/`, this is expanded to user home.
 
 - `processors` This section details how to process each type of file using the
