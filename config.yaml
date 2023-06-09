@@ -1,0 +1,16 @@
+---
+# The time (in seconds) to wait after the last event was received before handling
+delayInSeconds: 5
+
+# Cleanup zero byte files automatically
+cleanupZeroByte: true
+
+# The set of locations on disk to watch
+watch:
+  - /home/mproffitt/Descargas
+  - /home/mproffitt/Imágenes/input
+
+processors:
+  - type: image/x-xcf
+    handler: move
+    path: /home/mproffitt/Imágenes/workbench/xcf
