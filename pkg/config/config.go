@@ -46,10 +46,15 @@ type Config struct {
 	DelayInSeconds  time.Duration `yaml:"delayInSeconds"`
 	CleanupZeroByte bool          `yaml:"cleanupZeroByte"`
 	PluginPath      string        `yaml:"pluginDirectory"`
+	BufferSize      int           `yaml:"bufferSize"`
+	LogLevel        string        `yaml:"logLevel"`
 }
 
 // MaxRetries Maximum number of retries for operations
 const MaxRetries = 100
+
+// DefaultBufferSize When not set, the jobs buffer will be this size
+const DefaultBufferSize = 50
 
 // New Load the config file
 func New(configFile string) (c *Config, err error) {
@@ -71,6 +76,21 @@ func load(filename string) (err error) {
 
 	if err = yaml.Unmarshal(f, &config); err != nil {
 		return
+	}
+
+	if config.BufferSize == 0 {
+		config.BufferSize = DefaultBufferSize
+	}
+
+	switch config.LogLevel {
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	case "warn":
+		log.SetLevel(log.WarnLevel)
+	default:
+		log.SetLevel(log.InfoLevel)
 	}
 
 	dirname, _ := os.UserHomeDir()

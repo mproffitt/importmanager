@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	c "github.com/mproffitt/importmanager/pkg/config"
@@ -21,51 +22,104 @@ type event struct {
 	details m.Details
 }
 
-func setupWatches(config *c.Config) {
-	channels := make([]chan notify.EventInfo, len(config.Watch))
+type watch struct {
+	stop     chan bool
+	complete chan bool
+	events   chan notify.EventInfo
+}
+
+func setupWatches(config *c.Config, stop, finished chan bool) {
+	channels := make([]watch, len(config.Watch))
 	for i := 0; i < len(config.Watch); i++ {
-		channels[i] = make(chan notify.EventInfo, 1)
-		go func(path string, channel chan notify.EventInfo) {
-			if err := notify.Watch(path, channel, notify.All, notify.InCloseWrite); err != nil {
-				log.Fatal(err)
-				return
-			}
-			log.Info("Starting listening to: ", path)
-			var paths = make(map[string]event)
-			for {
-				select {
-				case ei := <-channel:
-					switch ei.Event() {
-					case notify.Remove:
-						delete(paths, ei.Path())
-					default:
-						if _, err := os.Stat(ei.Path()); err == nil {
-							var details = m.Catagories.FindCatagoryFor(ei.Path())
-							log.Debug(details)
-							if details.Type != "application/x-partial-download" {
-								paths[ei.Path()] = event{
-									event:   ei.Event(),
-									time:    time.Now(),
-									details: *details,
-								}
-							}
-						}
-					}
-				case <-time.After(config.DelayInSeconds * time.Second):
-					// TODO: when moving large numbers of files, the number of paths
-					// may be fairly extensive. Probably want to implement a queue
-					// here to handle files in batches and prevent overloading
-					for p, e := range paths {
-						// Wait 5 seconds after last event before handling
-						if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
-							delete(paths, p)
-							go handlePath(p, e.details, config.Processors, config.CleanupZeroByte)
-						}
+		channels[i] = watch{
+			stop:     make(chan bool, 1),
+			complete: make(chan bool, 1),
+			events:   make(chan notify.EventInfo),
+		}
+		go watchLocation(config.Watch[i], channels[i], config)
+	}
+	<-stop
+	for i := 0; i < len(channels); i++ {
+		channels[i].stop <- true
+		<-channels[i].complete
+	}
+	finished <- true
+}
+
+type job struct {
+	path       string
+	details    m.Details
+	processors []c.Processor
+	czb        bool
+}
+
+func watchLocation(path string, channel watch, config *c.Config) {
+	var jobs chan job = make(chan job)
+	var wg sync.WaitGroup
+	for i := 0; i < config.BufferSize; i++ {
+		wg.Add(1)
+		log.Debugf("Starting %s worker %d", path, i)
+		go pathWorker(jobs, &wg)
+	}
+	if err := notify.Watch(path, channel.events, notify.All, notify.InCloseWrite); err != nil {
+		log.Fatal(err)
+		return
+	}
+	log.Info("Starting listening to: ", path)
+	var paths = make(map[string]event)
+	for {
+		select {
+		case ei := <-channel.events:
+			switch ei.Event() {
+			case notify.Remove:
+				delete(paths, ei.Path())
+			default:
+				if _, err := os.Stat(ei.Path()); err != nil {
+					continue
+				}
+				var details = m.Catagories.FindCatagoryFor(ei.Path())
+				log.Debug(details)
+				if details.Type != "application/x-partial-download" {
+					paths[ei.Path()] = event{
+						event:   ei.Event(),
+						time:    time.Now(),
+						details: *details,
 					}
 				}
 			}
-		}(config.Watch[i], channels[i])
+		case <-time.After(config.DelayInSeconds * time.Second):
+			// TODO: when moving large numbers of files, the number of paths
+			// may be fairly extensive. Probably want to implement a queue
+			// here to handle files in batches and prevent overloading
+			for p, e := range paths {
+				// Wait 5 seconds after last event before handling
+				if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
+					delete(paths, p)
+					jobs <- job{
+						path:       p,
+						details:    e.details,
+						processors: config.Processors,
+						czb:        config.CleanupZeroByte,
+					}
+				}
+			}
+		case <-channel.stop:
+			log.Infof("Shutting down listener for path %s", path)
+			close(jobs)
+			wg.Wait()
+			notify.Stop(channel.events)
+			channel.complete <- true
+		}
 	}
+}
+
+func pathWorker(jobs chan job, wg *sync.WaitGroup) {
+	var j job = <-jobs
+	defer wg.Done()
+	if j.path == "" && len(j.processors) == 0 {
+		return
+	}
+	handlePath(j.path, j.details, j.processors, j.czb)
 }
 
 func handlePath(path string, details m.Details, processors []c.Processor, czb bool) {
@@ -124,16 +178,20 @@ func main() {
 		filename string
 		config   *c.Config
 		err      error
+		sigc     chan os.Signal = make(chan os.Signal, 1)
+		stop     chan bool      = make(chan bool, 1)
+		finished chan bool      = make(chan bool, 1)
+		done     chan bool      = make(chan bool, 1)
 	)
-	log.SetLevel(log.DebugLevel)
-	sigc := make(chan os.Signal, 1)
-	done := make(chan bool)
 	signal.Notify(sigc, os.Interrupt)
 
 	go func() {
 		for range sigc {
 			log.Info("Shutting down listeners")
-			done <- true
+			stop <- true
+			if <-finished {
+				done <- true
+			}
 		}
 	}()
 
@@ -151,6 +209,7 @@ func main() {
 
 	log.Debug(fmt.Sprintf("%+v", config))
 	log.Info("Starting watchers")
-	setupWatches(config)
+	setupWatches(config, stop, finished)
 	<-done
+	log.Info("Done")
 }

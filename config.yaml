@@ -12,6 +12,10 @@ watch:
 
 pluginDirectory: plugins
 
+logLevel: info
+
+bufferSize: 50
+
 processors:
   - type: image/x-xcf
     handler: move

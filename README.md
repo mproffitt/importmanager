@@ -17,7 +17,7 @@ Create a [config.yaml](./config.yaml) using the configuration settings below
 as a guide then run as:
 
 ```bash
-$ ./importmanager -config config.yaml
+./importmanager -config config.yaml
 ```
 
 You may also define this as a `systemd --user` service.
@@ -124,6 +124,8 @@ The install handler currently accepts the following additional properties
 - `cleanupZeroByte` Automatically delete files of 0 bytes in length.
 - `pluginDirectory` Absolute path to the location to look for plugins used as
   handlers during processing.
+- `bufferSize` the size of the worker pool buffer for each path being watched
+  default 50
 
 ## Plugins
 
@@ -172,17 +174,6 @@ Sample plugins:
 - [example.bash](plugins/example.bash)
 
 ## TO DO
-
-There is mainly one outstanding items to complete for this applicartion
-
-1. Currently the application tries to immediately operate on all files that
-   appear in the `watch` locations. When copying images (e.g. from a camera)ç
-   this may result in a large number of files being handled simultaneously
-
-   One thing that needs to be implemented is controllable buffering to prevent
-   overloading the system during bulk operations.
-
-Other outstanding tasks:
 
 - Include mime type descriptions from other locations than `usr/share/mime`
   - `/usr/local/share/mime`
