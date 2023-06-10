@@ -45,14 +45,15 @@ type Config struct {
 	Processors      []Processor   `yaml:"processors"`
 	DelayInSeconds  time.Duration `yaml:"delayInSeconds"`
 	CleanupZeroByte bool          `yaml:"cleanupZeroByte"`
+	PluginPath      string        `yaml:"pluginDirectory"`
 }
 
-const MAX_TRIES = 100
+// MaxRetries Maximum number of retries for operations
+const MaxRetries = 100
 
 // New Load the config file
 func New(configFile string) (c *Config, err error) {
 	c = &config
-	fmt.Println(c)
 	go watch(context.Background(), configFile)
 	err = load(configFile)
 	return
@@ -72,19 +73,28 @@ func load(filename string) (err error) {
 		return
 	}
 
+	dirname, _ := os.UserHomeDir()
 	for i, p := range config.Watch {
 		if strings.HasPrefix(p, "~/") {
-			dirname, _ := os.UserHomeDir()
 			config.Watch[i] = filepath.Join(dirname, p[2:])
 			log.Debugf("Path %s became %s", p, config.Watch[i])
 		}
 	}
 
+	if strings.HasPrefix(config.PluginPath, "~/") {
+		config.PluginPath = filepath.Join(dirname, config.PluginPath[2:])
+	}
+
 	for i, p := range config.Processors {
 		if strings.HasPrefix(p.Path, "~/") {
-			dirname, _ := os.UserHomeDir()
 			config.Processors[i].Path = filepath.Join(dirname, p.Path[2:])
 			log.Debugf("Path %s became %s", p.Path, config.Processors[i].Path)
+		}
+		if config.PluginPath != "" {
+			var handler string = filepath.Join(config.PluginPath, p.Handler)
+			if _, err = os.Stat(handler); !os.IsNotExist(err) {
+				config.Processors[i].Handler = handler
+			}
 		}
 	}
 	log.Info("Done loading config file")
@@ -116,7 +126,7 @@ func watch(ctx context.Context, filename string) {
 					if _, err := os.Stat(filename); err == nil {
 						break
 					}
-					if i == MAX_TRIES {
+					if i == MaxRetries {
 						// If we got here and the config wasn't recreted
 						// create it with the last known config values
 						data, _ := yaml.Marshal(&config)

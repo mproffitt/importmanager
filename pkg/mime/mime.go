@@ -63,10 +63,10 @@ type catagories map[string][]MimeType
 
 // Details Contains basic information about the type
 type Details struct {
-	Catagory  string
-	Type      string
-	SubClass  []string
-	Extension string
+	Catagory  string   `json:"category"`
+	Type      string   `json:"type"`
+	SubClass  []string `json:"subclass"`
+	Extension string   `json:"extension"`
 }
 
 // IsExecutable - Test if the current mime version should be executable

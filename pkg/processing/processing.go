@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"os"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +47,11 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 		if err = builtIn(path, dest, details, processor); err != nil {
 			return
 		}
+	} else {
+		log.Info("Using plugin handler")
+		if err = runPlugin(path, dest, details, processor); err != nil {
+			return
+		}
 	}
 
 	err = postProcess(path, details, processor)
@@ -79,11 +83,11 @@ func builtIn(source, dest string, details *mime.Details, processor *c.Processor)
 	return
 }
 
-type P map[string]interface{}
+type properties map[string]interface{}
 
 func preProcess(path, dest string, details *mime.Details, processor *c.Processor) (string, error) {
 	log.Infof("Triggering preProcessing for '%s'", processor.Type)
-	var p P = P{
+	var p properties = properties{
 		"ext": strings.Replace(details.Extension, ".", "", 1),
 	}
 	for key, value := range processor.Properties {
@@ -129,14 +133,6 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 	}
 
 	var err error
-	if strings.HasPrefix(path, "~/") {
-		var (
-			usr, _ = user.Current()
-			dir    = usr.HomeDir
-		)
-		dest = filepath.Join(dir, dest[2:])
-	}
-
 	if dest, err = formatT(dest, p); err != nil {
 		return "", err
 	}
@@ -199,7 +195,7 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 	return
 }
 
-func formatT(format string, args map[string]interface{}) (formatted string, err error) {
+func formatT(format string, args properties) (formatted string, err error) {
 	log.Debugf("Templating '%s' with %+v", format, args)
 	t := template.Must(template.New("").Parse(format))
 	var doc bytes.Buffer

@@ -81,7 +81,7 @@ Each processor accepts the following options:
     bit. Useful for shell scripts and/or app images that you want immediately
     available to use.
 
-    > **Warning** Install should not be used for package manager archives
+    > **Warning** `install` should not be used for package manager archives
     > (apt, rpm, etc.). This is because the install cannot and will never be
     > extended for `sudo` permissions. Future iterations of this application
     > will support custom handlers. If you require this behavior, you'll be
@@ -122,10 +122,58 @@ The install handler currently accepts the following additional properties
   In the sample file, this is set to 5 seconds.
 
 - `cleanupZeroByte` Automatically delete files of 0 bytes in length.
+- `pluginDirectory` Absolute path to the location to look for plugins used as
+  handlers during processing.
+
+## Plugins
+
+Rudimentary plugin support is available via scripts loaded into the
+`pluginDirectory`.
+
+At present only the following are supported:
+
+- `python` This will use the system `python` command which depending on your
+  system might be `python2`
+- `sh` Shell scripts
+- `bash` Bash scripts
+
+> **Warning** No type or script safety is carried out on the *plugins* used by
+> this application.  This can be dangerous and lead to your system being
+> compromised. It is your responsibility to ensure all scripts in the plugin
+_ location are safe. This program will only activate them.
+
+The handler is given exactly 1 argument which is a JSON representation of the
+details of that given handler:
+
+Example:
+
+```nohighlight
+{
+  "source": "/home/mproffitt/Descargas/IMG_0180.CR3",
+  "destination": "/home/mproffitt/Imágenes/workbench/CR3/2022-11-11",
+  "details": {
+    "category": "image",
+    "type": "image/x-canon-cr3",
+    "subclass": [
+      "image/x-dcraw"
+    ],
+    "extension": ".CR3"
+  },
+  "properties": {
+    "include-date-directory": "true",
+    "uppercase-extension-directory": "true"
+  }
+}
+```
+
+Sample plugins:
+
+- [example.py](plugins/example.py)
+- [example.bash](plugins/example.bash)
 
 ## TO DO
 
-There are mainly two outstanding items to complete for this applicartion
+There is mainly one outstanding items to complete for this applicartion
 
 1. Currently the application tries to immediately operate on all files that
    appear in the `watch` locations. When copying images (e.g. from a camera)ç
@@ -134,14 +182,6 @@ There are mainly two outstanding items to complete for this applicartion
    One thing that needs to be implemented is controllable buffering to prevent
    overloading the system during bulk operations.
 
-1. An extensible plugin system.
-
-   Not every action can or should be written in golang. I'd like to be able to
-   fork out to other languages for handling certain types of file; namely shell
-   and python for operations such as image manipulation. This would mean that
-   the program doesn't need to he recompiled just because someone wants a new
-   handler for unknown filetype X.
-
 Other outstanding tasks:
 
 - Include mime type descriptions from other locations than `usr/share/mime`
@@ -149,7 +189,8 @@ Other outstanding tasks:
   - `~/.local/share/mime`
 - Cross platform capability?
 - Testing? (or not)...
-- I'll think of something else I'm sure.
+- Notifications - it would be useful if this could raise a system notitication
+  when an operation (or bulk operation) is completed.
 
 ## Contributing
 

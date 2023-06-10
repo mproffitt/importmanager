@@ -10,6 +10,8 @@ watch:
   - ~/Descargas
   - ~/Imágenes/input
 
+pluginDirectory: plugins
+
 processors:
   - type: image/x-xcf
     handler: move
@@ -19,10 +21,10 @@ processors:
     path: ~/test/{{.date}}
   - type: application/x-executable
     handler: install
-    path: /home/mproffitt/bin
+    path: ~/bin
     properties:
       lowercase-destination: true
       strip-extension: true
   - type: image/x-dcraw
-    handler: move
+    handler: example.py
     path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}
