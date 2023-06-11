@@ -155,12 +155,13 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 						czb:        config.CleanupZeroByte,
 						ready:      true,
 					}
-
-					if len(paths) == 0 && notifyOnComplete && finished {
-						notifications <- fmt.Sprintf("Processing for path %s completed.", p)
-						notifyOnComplete = false
-					}
 				}
+			}
+
+			// log.Warnf("%d %v %v", len(paths), notifyOnComplete, finished)
+			if len(paths) == 0 && notifyOnComplete && finished {
+				notifications <- fmt.Sprintf("Processing for path %s completed.", path)
+				notifyOnComplete = false
 			}
 		}
 	}
