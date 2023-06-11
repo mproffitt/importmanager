@@ -16,7 +16,16 @@ import (
 )
 
 func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
-	var final string = filepath.Join(dest, path.Base(source))
+	var basename string = path.Base(source)
+	if b, _ := strconv.ParseBool(processor.Properties["strip-extension"]); b {
+		basename = strings.TrimSuffix(basename, details.Extension)
+
+		if b, _ := strconv.ParseBool(processor.Properties["lowercase-destination"]); b {
+			basename = strings.ToLower(basename)
+		}
+	}
+
+	var final string = filepath.Join(dest, basename)
 	if _, err = os.Stat(final); err == nil {
 		log.Warnf("File already exists at '%s'. Removing source", final)
 		pdelete(source)
@@ -30,7 +39,7 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 	if r, err = os.Open(source); err != nil {
 		return
 	}
-	defer r.Close() // ok to ignore error: file was opened read-only.
+	defer r.Close()
 
 	if w, err = os.Create(final); err != nil {
 		return
@@ -76,16 +85,6 @@ func pextract(source, dest string, details *mime.Details, processor *c.Processor
 }
 
 func pinstall(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
-	var basename string = path.Base(source)
-	if b, _ := strconv.ParseBool(processor.Properties["strip-extension"]); b {
-		basename = strings.TrimSuffix(basename, details.Extension)
-
-		if b, _ := strconv.ParseBool(processor.Properties["lowercase-destination"]); b {
-			basename = strings.ToLower(basename)
-		}
-	}
-	dest = filepath.Join(dest, basename)
-
 	// To protect the overall system, we only "install" AppImages and scripts which are
 	// "installed" by moving them to ~/bin and setting the executable flag
 	if err = pmove(source, dest, details, processor); err == nil {
