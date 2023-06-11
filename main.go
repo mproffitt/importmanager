@@ -100,7 +100,7 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 
 	active = make([]bool, len(activeWorkers))
 
-	if err := notify.Watch(path, channel.events, notify.All, notify.InCloseWrite); err != nil {
+	if err := notify.Watch(path, channel.events, notify.All); err != nil {
 		log.Fatal(err)
 		return
 	}

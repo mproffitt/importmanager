@@ -29,7 +29,7 @@ There are two primary sections to the configuration file, `watch` and
   Primarily, the following system events are listened for:
 
   ```golang
-  notify.All | notify.InCloseWrite
+  notify.All = notify.Create | notify.Remove | notify.Write | notify.Rename
   ```
 
   See [notify](https://pkg.go.dev/github.com/rjeczalik/notify)

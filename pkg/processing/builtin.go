@@ -2,6 +2,7 @@ package processing
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -29,6 +30,7 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 	if _, err = os.Stat(final); err == nil {
 		log.Warnf("File already exists at '%s'. Removing source", final)
 		pdelete(source)
+		err = fmt.Errorf("copy-deleted")
 		return
 	}
 
@@ -57,6 +59,9 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 
 func pmove(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
 	if final, err = pcopy(source, dest, details, processor); err != nil {
+		if err.Error() == "copy-deleted" {
+			err = nil
+		}
 		return
 	}
 	pdelete(source)
