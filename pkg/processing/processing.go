@@ -165,10 +165,11 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 				return
 			}
 		case "setexec":
+			log.Infof("checking setexec %s", v)
 			if b, _ := strconv.ParseBool(v); !b {
 				// We reuse `setexec` property when coming from
 				// `install` - probably other places will too.
-				if _, err := os.Stat(v); !os.IsNotExist(err) {
+				if _, err := os.Stat(v); err != nil {
 					continue
 				}
 				path = v

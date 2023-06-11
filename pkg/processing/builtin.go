@@ -90,7 +90,7 @@ func pinstall(source, dest string, details *mime.Details, processor *c.Processor
 	// "installed" by moving them to ~/bin and setting the executable flag
 	if dest, err = pmove(source, dest, details, processor); err == nil {
 		// this is handled by the post processor
-		processor.Properties["setexec"] = dest
+		(*processor).Properties["setexec"] = dest
 	}
 	return
 }
