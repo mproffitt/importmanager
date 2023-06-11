@@ -1,7 +1,5 @@
 # ImportManager
 
-> **Note** This is a work in progress.
-
 The idea of this program is to replace the bash script
 [dtcp.bash](https://gist.github.com/mproffitt/d720a1a513cd3155316783a023f0edf2)
 
@@ -47,9 +45,6 @@ Processors are automatically reloaded. This means that even with the application
 running, new processors can be added and automatically take effect without
 having to restart the application. This is not (currently) true for `watch` or
 other configuration settings.
-
-> **Note** future iterations of this application will allow for user defined
-> scripted processors to be supplied.
 
 Each processor accepts the following options:
 
@@ -179,9 +174,6 @@ Sample plugins:
   - `/usr/local/share/mime`
   - `~/.local/share/mime`
 - Cross platform capability?
-- Testing? (or not)...
-- Notifications - it would be useful if this could raise a system notitication
-  when an operation (or bulk operation) is completed.
 
 ## Contributing
 

@@ -37,10 +37,11 @@ func notification(notification chan string) {
 		log.Debug("Checking for notification message")
 		select {
 		case msg := <-notification:
+			log.Infof("Sending message %s to notification system", msg)
 			note.Push("ImportManager", msg, "/home/user/icon.png", n.UR_NORMAL)
-			log.Info(msg)
 		default:
-			<-time.After(10 * time.Second)
+			// We dont really need to check this too often, one a second is fine
+			<-time.After(1 * time.Second)
 		}
 	}
 }
@@ -75,14 +76,21 @@ type job struct {
 	complete   chan bool
 }
 
+type lockable struct {
+	sync.RWMutex
+	paths map[string]event
+}
+
 func watchLocation(path string, channel watch, config *c.Config, notifications chan string) {
 	var (
-		active           []bool
-		wg               sync.WaitGroup
-		jobs             chan job         = make(chan job)
-		activeWorkers    []chan bool      = make([]chan bool, 0)
-		paths            map[string]event = make(map[string]event)
-		notifyOnComplete bool             = false
+		active        []bool
+		wg            sync.WaitGroup
+		jobs          chan job    = make(chan job)
+		activeWorkers []chan bool = make([]chan bool, 0)
+		events        lockable    = lockable{
+			paths: make(map[string]event),
+		}
+		notifyOnComplete bool = false
 	)
 
 	for i := 0; i < config.BufferSize; i++ {
@@ -107,7 +115,9 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 		case ei := <-channel.events:
 			switch ei.Event() {
 			case notify.Remove:
-				delete(paths, ei.Path())
+				events.RLock()
+				delete(events.paths, ei.Path())
+				events.RUnlock()
 			default:
 				if _, err := os.Stat(ei.Path()); err != nil {
 					continue
@@ -115,11 +125,13 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 				var details = m.Catagories.FindCatagoryFor(ei.Path())
 				log.Debug(details)
 				if details.Type != "application/x-partial-download" {
-					paths[ei.Path()] = event{
+					events.RLock()
+					events.paths[ei.Path()] = event{
 						event:   ei.Event(),
 						time:    time.Now(),
 						details: *details,
 					}
+					events.RUnlock()
 					notifyOnComplete = true
 				}
 			}
@@ -144,25 +156,27 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 			finished, active = allFinished(active, activeWorkers)
 			log.Debugf("checking for ready work at %s", path)
 
-			for p, e := range paths {
-				// Wait 5 seconds after last event before handling
-				if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
-					delete(paths, p)
-					jobs <- job{
-						path:       p,
-						details:    e.details,
-						processors: config.Processors,
-						czb:        config.CleanupZeroByte,
-						ready:      true,
+			go func() {
+				events.Lock()
+				for p, e := range events.paths {
+					if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
+						delete(events.paths, p)
+						jobs <- job{
+							path:       p,
+							details:    e.details,
+							processors: config.Processors,
+							czb:        config.CleanupZeroByte,
+							ready:      true,
+						}
 					}
 				}
-			}
+				events.Unlock()
 
-			// log.Warnf("%d %v %v", len(paths), notifyOnComplete, finished)
-			if len(paths) == 0 && notifyOnComplete && finished {
-				notifications <- fmt.Sprintf("Processing for path %s completed.", path)
-				notifyOnComplete = false
-			}
+				if len(events.paths) == 0 && notifyOnComplete && finished {
+					notifications <- fmt.Sprintf("Processing for path %s completed.", path)
+					notifyOnComplete = false
+				}
+			}()
 		}
 	}
 }
