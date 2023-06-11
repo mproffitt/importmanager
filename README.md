@@ -78,9 +78,10 @@ Each processor accepts the following options:
 
     > **Warning** `install` should not be used for package manager archives
     > (apt, rpm, etc.). This is because the install cannot and will never be
-    > extended for `sudo` permissions. Future iterations of this application
-    > will support custom handlers. If you require this behavior, you'll be
-    > welcome to write your own handler.
+    > extended for `sudo` permissions. For this you must use a custom handler.
+    > The reason for this is to prevent risk to your system from automatically
+    > installing packages without verification or validation.
+
 - `properties` Custom properties to control what happens to the file during
   handling. These are broadly split into 3 catagories, pre processing, post
   processing and execution.
@@ -170,9 +171,6 @@ Sample plugins:
 
 ## TO DO
 
-- Include mime type descriptions from other locations than `usr/share/mime`
-  - `/usr/local/share/mime`
-  - `~/.local/share/mime`
 - Cross platform capability?
 
 ## Contributing

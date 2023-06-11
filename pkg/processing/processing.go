@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"os"
 	"os/user"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 )
 
 // Process start the processing for the given path
-func Process(path string, details *mime.Details, processor *c.Processor) (err error) {
+func Process(source string, details *mime.Details, processor *c.Processor) (err error) {
 	log.Infof("Parsing path properties for '%s'", processor.Type)
 	if processor.Properties == nil {
 		(*processor).Properties = make(map[string]string)
@@ -36,7 +37,7 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 	}
 
 	var dest string
-	dest, err = preProcess(path, processor.Path, details, processor)
+	dest, err = preProcess(source, processor.Path, details, processor)
 	if err != nil {
 		return
 	}
@@ -44,17 +45,18 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 	log.Infof("Checking processor type '%s'", processor.Handler)
 	if c.IsBuiltIn(processor.Handler) {
 		log.Info("Using builtin handler")
-		if err = builtIn(path, dest, details, processor); err != nil {
+		if err = builtIn(source, dest, details, processor); err != nil {
 			return
 		}
 	} else {
 		log.Info("Using plugin handler")
-		if err = runPlugin(path, dest, details, processor); err != nil {
+		if err = runPlugin(source, dest, details, processor); err != nil {
 			return
 		}
 	}
 
-	err = postProcess(path, details, processor)
+	var basename string = path.Base(source)
+	err = postProcess(path.Join(dest, basename), details, processor)
 	return
 }
 
@@ -135,10 +137,12 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 	return dest, nil
 }
 
-func postProcess(path string, details *mime.Details, processor *c.Processor) (err error) {
+func postProcess(dest string, details *mime.Details, processor *c.Processor) (err error) {
+	log.Infof("Triggering postProcessor for %s", dest)
 	for k, v := range processor.Properties {
 		switch strings.ToLower(k) {
 		case "chown":
+			log.Infof("checking chown %s %s", v, dest)
 			who := strings.Split(v, ":")
 			var (
 				u        *user.User
@@ -153,15 +157,16 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 				return
 			}
 			gid, _ = strconv.Atoi(g.Gid)
-			if err = os.Chown(path, uid, gid); err != nil {
+			if err = os.Chown(dest, uid, gid); err != nil {
 				return
 			}
 		case "chmod":
+			log.Infof("checking chmod %s %s", v, dest)
 			var set m.Set
 			if set, err = m.Parse(v); err != nil {
 				return
 			}
-			if _, _, err = set.Chmod(path); err != nil {
+			if _, _, err = set.Chmod(dest); err != nil {
 				return
 			}
 		case "setexec":
@@ -172,14 +177,14 @@ func postProcess(path string, details *mime.Details, processor *c.Processor) (er
 				if _, err := os.Stat(v); err != nil {
 					continue
 				}
-				path = v
+				dest = v
 			}
 
 			var set m.Set
 			if set, err = m.Parse("+x"); err != nil {
 				return
 			}
-			if _, _, err = set.Chmod(path); err != nil {
+			if _, _, err = set.Chmod(dest); err != nil {
 				return
 			}
 		}
