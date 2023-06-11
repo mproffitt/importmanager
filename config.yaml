@@ -2,6 +2,11 @@
 # The time (in seconds) to wait after the last event was received before handling
 delayInSeconds: 1
 
+mimeDirectories:
+  - /usr/share/mime
+  - /usr/local/share/mime
+  - ~/.local/share/mime
+
 # Cleanup zero byte files automatically
 cleanupZeroByte: true
 

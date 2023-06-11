@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	m "github.com/mproffitt/importmanager/pkg/mime"
 	n "github.com/rjeczalik/notify"
 	log "github.com/sirupsen/logrus"
 	yaml "gopkg.in/yaml.v2"
@@ -48,6 +49,7 @@ type Config struct {
 	PluginPath      string        `yaml:"pluginDirectory"`
 	BufferSize      int           `yaml:"bufferSize"`
 	LogLevel        string        `yaml:"logLevel"`
+	MimeDirectories []string      `yaml:"mimeDirectories"`
 }
 
 // MaxRetries Maximum number of retries for operations
@@ -73,6 +75,14 @@ func IsBuiltIn(plugin string) bool {
 	return false
 }
 
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		dirname, _ := os.UserHomeDir()
+		path = filepath.Join(dirname, path[2:])
+	}
+	return path
+}
+
 func load(filename string) (err error) {
 	config.RLock()
 	defer config.RUnlock()
@@ -86,6 +96,11 @@ func load(filename string) (err error) {
 	if err = yaml.Unmarshal(f, &config); err != nil {
 		return
 	}
+
+	for i, p := range config.MimeDirectories {
+		config.MimeDirectories[i] = expandHome(p)
+	}
+	m.Load(config.MimeDirectories)
 
 	if config.BufferSize == 0 {
 		config.BufferSize = DefaultBufferSize
@@ -102,21 +117,20 @@ func load(filename string) (err error) {
 		log.SetLevel(log.InfoLevel)
 	}
 
-	dirname, _ := os.UserHomeDir()
 	for i, p := range config.Watch {
 		if strings.HasPrefix(p, "~/") {
-			config.Watch[i] = filepath.Join(dirname, p[2:])
+			config.Watch[i] = expandHome(p)
 			log.Debugf("Path %s became %s", p, config.Watch[i])
 		}
 	}
 
 	if strings.HasPrefix(config.PluginPath, "~/") {
-		config.PluginPath = filepath.Join(dirname, config.PluginPath[2:])
+		config.PluginPath = expandHome(config.PluginPath)
 	}
 
 	for i, p := range config.Processors {
 		if strings.HasPrefix(p.Path, "~/") {
-			config.Processors[i].Path = filepath.Join(dirname, p.Path[2:])
+			config.Processors[i].Path = expandHome(p.Path)
 			log.Debugf("Path %s became %s", p.Path, config.Processors[i].Path)
 		}
 		if config.PluginPath != "" && !IsBuiltIn(p.Handler) {

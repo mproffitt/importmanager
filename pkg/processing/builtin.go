@@ -32,7 +32,7 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 	}
 	defer r.Close() // ok to ignore error: file was opened read-only.
 
-	if w, err = os.Create(dest); err != nil {
+	if w, err = os.Create(final); err != nil {
 		return
 	}
 
@@ -47,14 +47,10 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 }
 
 func pmove(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
-	var final string = filepath.Join(dest, path.Base(source))
-	if _, err = os.Stat(final); err == nil {
-		log.Warnf("File already exists at '%s'. Removing source", final)
-		pdelete(source)
+	if err = pcopy(source, dest, details, processor); err != nil {
 		return
 	}
-	err = os.Rename(source, dest)
-	return
+	return pdelete(source)
 }
 
 func pextract(source, dest string, details *mime.Details, processor *c.Processor) (err error) {

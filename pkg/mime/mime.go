@@ -9,38 +9,39 @@ import (
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
+	log "github.com/sirupsen/logrus"
 )
 
-// MimeGlob XML entry for the glob entry to MimeType
-type MimeGlob struct {
+// Glob XML entry for the glob entry to Type
+type Glob struct {
 	XMLName xml.Name `xml:"glob"`
 	Pattern string   `xml:"pattern,attr"`
 }
 
-// MimeSubType XML entry for the sub-class-of entry to MimeType
-type MimeSubType struct {
+// SubType XML entry for the sub-class-of entry to Type
+type SubType struct {
 	XMLName xml.Name `xml:"sub-class-of"`
 	Type    string   `xml:"type,attr"`
 }
 
-// MimeAlias XML container for the alias entry to MimeType
-type MimeAlias struct {
+// Alias XML container for the alias entry to Type
+type Alias struct {
 	XMLName xml.Name `xml:"alias"`
 	Type    string   `xml:"type,attr"`
 }
 
-// MimeType XML container type for a Mime type
-type MimeType struct {
-	XMLName  xml.Name      `xml:"mime-type"`
-	Xmlns    string        `xml:"xmlns,attr"`
-	Type     string        `xml:"type,attr"`
-	Globs    []MimeGlob    `xml:"glob"`
-	Aliases  []MimeAlias   `xml:"alias"`
-	SubClass []MimeSubType `xml:"sub-class-of"`
+// Type XML container type for a  type
+type Type struct {
+	XMLName  xml.Name  `xml:"mime-type"`
+	Xmlns    string    `xml:"xmlns,attr"`
+	Type     string    `xml:"type,attr"`
+	Globs    []Glob    `xml:"glob"`
+	Aliases  []Alias   `xml:"alias"`
+	SubClass []SubType `xml:"sub-class-of"`
 }
 
 // GlobMatches Test if the file extension matches one of the globs defined for this type
-func (m MimeType) GlobMatches(what string) bool {
+func (m Type) GlobMatches(what string) bool {
 	for _, v := range m.Globs {
 		if strings.EqualFold(path.Ext(what), strings.Replace(v.Pattern, "*", "", 1)) {
 			return true
@@ -50,7 +51,7 @@ func (m MimeType) GlobMatches(what string) bool {
 }
 
 // AliasMatches Test if the file extension matches one of the globs defined for this type
-func (m MimeType) AliasMatches(what string) bool {
+func (m Type) AliasMatches(what string) bool {
 	for _, v := range m.Aliases {
 		if strings.EqualFold(what, v.Type) {
 			return true
@@ -59,7 +60,7 @@ func (m MimeType) AliasMatches(what string) bool {
 	return false
 }
 
-type catagories map[string][]MimeType
+type catagories map[string][]Type
 
 // Details Contains basic information about the type
 type Details struct {
@@ -131,14 +132,14 @@ func (c catagories) FindCatagoryFor(what string) (details *Details) {
 }
 
 // Catagories Set of all available mime types sorted by catagory
-var Catagories catagories = make(catagories)
+var Catagories catagories
 
-func loadCategory(dir string) (mimes []MimeType, err error) {
-	mimes = make([]MimeType, 0)
+func loadCategory(dir string) (mimes []Type, err error) {
+	mimes = make([]Type, 0)
 
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
-			var mime MimeType
+			var mime Type
 			file, err := os.Open(path)
 			if err != nil {
 				return err
@@ -154,21 +155,36 @@ func loadCategory(dir string) (mimes []MimeType, err error) {
 	return
 }
 
-func loadMimeTypes(path string) (mimes map[string]string, err error) {
+func loadTypes(path string) (mimes map[string]string, err error) {
 	mimes = make(map[string]string)
 	files, _ := ioutil.ReadDir(path)
 	for _, fi := range files {
 		if fi.IsDir() {
-			var c []MimeType
+			var c []Type
 			if c, err = loadCategory(filepath.Join(path, fi.Name())); err != nil {
 				return
 			}
-			Catagories[fi.Name()] = c
+			if _, ok := Catagories[fi.Name()]; !ok {
+				Catagories[fi.Name()] = make([]Type, 0)
+			}
+			Catagories[fi.Name()] = append(Catagories[fi.Name()], c...)
 		}
 	}
 	return
 }
 
-func init() {
-	loadMimeTypes("/usr/share/mime")
+// Load load all known mimetypes from the defined path or paths
+func Load(paths []string) {
+	Catagories = make(catagories)
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			log.Errorf("Unable to load path %s. %s", p, err.Error())
+			continue
+		}
+		loadTypes(p)
+	}
 }
+
+//func init() {
+//	loadTypes("/usr/share/mime")
+//}
