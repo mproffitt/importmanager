@@ -1,6 +1,6 @@
 ---
 # The time (in seconds) to wait after the last event was received before handling
-delayInSeconds: 5
+delayInSeconds: 1
 
 # Cleanup zero byte files automatically
 cleanupZeroByte: true

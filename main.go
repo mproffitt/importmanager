@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	n "github.com/0xAX/notificator"
 	c "github.com/mproffitt/importmanager/pkg/config"
 	m "github.com/mproffitt/importmanager/pkg/mime"
 	p "github.com/mproffitt/importmanager/pkg/processing"
-
 	"github.com/rjeczalik/notify"
 	log "github.com/sirupsen/logrus"
 )
@@ -28,15 +28,35 @@ type watch struct {
 	events   chan notify.EventInfo
 }
 
+func notification(notification chan string) {
+	var note *n.Notificator = n.New(n.Options{
+		DefaultIcon: "icon/default.png",
+		AppName:     "ImportManager",
+	})
+	for {
+		log.Debug("Checking for notification message")
+		select {
+		case msg := <-notification:
+			note.Push("ImportManager", msg, "/home/user/icon.png", n.UR_NORMAL)
+			log.Info(msg)
+		default:
+			<-time.After(10 * time.Second)
+		}
+	}
+}
+
 func setupWatches(config *c.Config, stop, finished chan bool) {
 	channels := make([]watch, len(config.Watch))
+	var notifications chan string = make(chan string)
+	go notification(notifications)
+
 	for i := 0; i < len(config.Watch); i++ {
 		channels[i] = watch{
 			stop:     make(chan bool, 1),
 			complete: make(chan bool, 1),
 			events:   make(chan notify.EventInfo),
 		}
-		go watchLocation(config.Watch[i], channels[i], config)
+		go watchLocation(config.Watch[i], channels[i], config, notifications)
 	}
 	<-stop
 	for i := 0; i < len(channels); i++ {
@@ -51,22 +71,37 @@ type job struct {
 	details    m.Details
 	processors []c.Processor
 	czb        bool
+	ready      bool
+	complete   chan bool
 }
 
-func watchLocation(path string, channel watch, config *c.Config) {
-	var jobs chan job = make(chan job)
-	var wg sync.WaitGroup
+func watchLocation(path string, channel watch, config *c.Config, notifications chan string) {
+	var (
+		active           []bool
+		wg               sync.WaitGroup
+		jobs             chan job         = make(chan job)
+		activeWorkers    []chan bool      = make([]chan bool, 0)
+		paths            map[string]event = make(map[string]event)
+		notifyOnComplete bool             = false
+	)
+
 	for i := 0; i < config.BufferSize; i++ {
 		wg.Add(1)
 		log.Debugf("Starting %s worker %d", path, i)
-		go pathWorker(jobs, &wg)
+		activeWorkers = append(activeWorkers, make(chan bool))
+		go pathWorker(jobs, activeWorkers[len(activeWorkers)-1], &wg)
 	}
+
+	active = make([]bool, len(activeWorkers))
+
 	if err := notify.Watch(path, channel.events, notify.All, notify.InCloseWrite); err != nil {
 		log.Fatal(err)
 		return
 	}
+
 	log.Info("Starting listening to: ", path)
-	var paths = make(map[string]event)
+
+	var finished bool = false
 	for {
 		select {
 		case ei := <-channel.events:
@@ -85,12 +120,30 @@ func watchLocation(path string, channel watch, config *c.Config) {
 						time:    time.Now(),
 						details: *details,
 					}
+					notifyOnComplete = true
 				}
 			}
-		case <-time.After(config.DelayInSeconds * time.Second):
-			// TODO: when moving large numbers of files, the number of paths
-			// may be fairly extensive. Probably want to implement a queue
-			// here to handle files in batches and prevent overloading
+		case <-channel.stop:
+			log.Infof("Shutting down listener for path %s", path)
+			for {
+				// Wait fro all jobs to finish
+				if a, _ := allFinished(active, activeWorkers); a {
+					log.Info("All jobs finished")
+					close(jobs)
+					break
+				}
+				<-time.After(10 * time.Microsecond)
+			}
+			log.Debug("Waiting for all goroutines to close")
+			wg.Wait()
+			log.Debug("All goroutines closed")
+			notify.Stop(channel.events)
+			channel.complete <- true
+
+		case <-time.After(10 * time.Microsecond):
+			finished, active = allFinished(active, activeWorkers)
+			log.Debugf("checking for ready work at %s", path)
+
 			for p, e := range paths {
 				// Wait 5 seconds after last event before handling
 				if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
@@ -100,26 +153,50 @@ func watchLocation(path string, channel watch, config *c.Config) {
 						details:    e.details,
 						processors: config.Processors,
 						czb:        config.CleanupZeroByte,
+						ready:      true,
+					}
+
+					if len(paths) == 0 && notifyOnComplete && finished {
+						notifications <- fmt.Sprintf("Processing for path %s completed.", p)
+						notifyOnComplete = false
 					}
 				}
 			}
-		case <-channel.stop:
-			log.Infof("Shutting down listener for path %s", path)
-			close(jobs)
-			wg.Wait()
-			notify.Stop(channel.events)
-			channel.complete <- true
 		}
 	}
 }
 
-func pathWorker(jobs chan job, wg *sync.WaitGroup) {
-	var j job = <-jobs
-	defer wg.Done()
-	if j.path == "" && len(j.processors) == 0 {
-		return
+func allFinished(active []bool, activeWorkers []chan bool) (bool, []bool) {
+	for i := 0; i < len(activeWorkers); i++ {
+		select {
+		case a := <-activeWorkers[i]:
+			active[i] = a
+		default:
+			continue
+		}
 	}
-	handlePath(j.path, j.details, j.processors, j.czb)
+
+	for _, b := range active {
+		if b {
+			log.Debug("Found an active worker")
+			return false, active
+		}
+	}
+	return true, active
+}
+
+func pathWorker(jobs chan job, running chan bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		var j job = <-jobs
+		if !j.ready {
+			return
+		}
+		log.Infof("received job %s)", j.path)
+		running <- true
+		handlePath(j.path, j.details, j.processors, j.czb)
+		running <- false
+	}
 }
 
 func handlePath(path string, details m.Details, processors []c.Processor, czb bool) {

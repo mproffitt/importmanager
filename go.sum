@@ -1,3 +1,5 @@
+github.com/0xAX/notificator v0.0.0-20220220101646-ee9b8921e557 h1:l6surSnJ3RP4qA1qmKJ+hQn3UjytosdoG27WGjrDlVs=
+github.com/0xAX/notificator v0.0.0-20220220101646-ee9b8921e557/go.mod h1:sTrmvD/TxuypdOERsDOS7SndZg0rzzcCi1b6wQMXUYM=
 github.com/arduino/go-paths-helper v1.2.0 h1:qDW93PR5IZUN/jzO4rCtexiwF8P4OIcOmcSgAYLZfY4=
 github.com/barasher/go-exiftool v1.10.0 h1:f5JY5jc42M7tzR6tbL9508S2IXdIcG9QyieEXNMpIhs=
 github.com/barasher/go-exiftool v1.10.0/go.mod h1:F9s/a3uHSM8YniVfwF+sbQUtP8Gmh9nyzigNF+8vsWo=

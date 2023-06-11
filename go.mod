@@ -3,6 +3,7 @@ module github.com/mproffitt/importmanager
 go 1.18
 
 require (
+	github.com/0xAX/notificator v0.0.0-20220220101646-ee9b8921e557
 	github.com/barasher/go-exiftool v1.10.0
 	github.com/codeclysm/extract/v3 v3.1.1
 	github.com/gabriel-vasile/mimetype v1.4.2
