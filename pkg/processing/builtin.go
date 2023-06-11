@@ -16,6 +16,13 @@ import (
 )
 
 func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+	var final string = filepath.Join(dest, path.Base(source))
+	if _, err = os.Stat(final); err == nil {
+		log.Warnf("File already exists at '%s'. Removing source", final)
+		pdelete(source)
+		return
+	}
+
 	var (
 		r *os.File
 		w *os.File
@@ -40,6 +47,12 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 }
 
 func pmove(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+	var final string = filepath.Join(dest, path.Base(source))
+	if _, err = os.Stat(final); err == nil {
+		log.Warnf("File already exists at '%s'. Removing source", final)
+		pdelete(source)
+		return
+	}
 	err = os.Rename(source, dest)
 	return
 }

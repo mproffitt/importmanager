@@ -42,7 +42,7 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 	}
 
 	log.Infof("Checking processor type '%s'", processor.Handler)
-	if isBuiltIn(processor.Handler) {
+	if c.IsBuiltIn(processor.Handler) {
 		log.Info("Using builtin handler")
 		if err = builtIn(path, dest, details, processor); err != nil {
 			return
@@ -56,15 +56,6 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 
 	err = postProcess(path, details, processor)
 	return
-}
-
-func isBuiltIn(pt string) bool {
-	for _, v := range c.DefaultHandlers {
-		if strings.EqualFold(pt, v) {
-			return true
-		}
-	}
-	return false
 }
 
 func builtIn(source, dest string, details *mime.Details, processor *c.Processor) (err error) {

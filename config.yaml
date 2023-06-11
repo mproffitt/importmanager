@@ -30,5 +30,5 @@ processors:
       lowercase-destination: true
       strip-extension: true
   - type: image/x-dcraw
-    handler: example.py
+    handler: move
     path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}

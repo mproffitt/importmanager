@@ -64,6 +64,15 @@ func New(configFile string) (c *Config, err error) {
 	return
 }
 
+func IsBuiltIn(plugin string) bool {
+	for _, p := range DefaultHandlers {
+		if strings.EqualFold(plugin, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func load(filename string) (err error) {
 	config.RLock()
 	defer config.RUnlock()
@@ -110,7 +119,7 @@ func load(filename string) (err error) {
 			config.Processors[i].Path = filepath.Join(dirname, p.Path[2:])
 			log.Debugf("Path %s became %s", p.Path, config.Processors[i].Path)
 		}
-		if config.PluginPath != "" {
+		if config.PluginPath != "" && !IsBuiltIn(p.Handler) {
 			var handler string = filepath.Join(config.PluginPath, p.Handler)
 			if _, err = os.Stat(handler); !os.IsNotExist(err) {
 				config.Processors[i].Handler = handler
