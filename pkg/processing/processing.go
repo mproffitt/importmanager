@@ -61,9 +61,9 @@ func Process(path string, details *mime.Details, processor *c.Processor) (err er
 func builtIn(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
 	switch processor.Handler {
 	case "copy":
-		err = pcopy(source, dest, details, processor)
+		_, err = pcopy(source, dest, details, processor)
 	case "move":
-		err = pmove(source, dest, details, processor)
+		_, err = pmove(source, dest, details, processor)
 	case "extract":
 		err = pextract(source, dest, details, processor)
 	case "install":

@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
 	var basename string = path.Base(source)
 	if b, _ := strconv.ParseBool(processor.Properties["strip-extension"]); b {
 		basename = strings.TrimSuffix(basename, details.Extension)
@@ -25,7 +25,7 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 		}
 	}
 
-	var final string = filepath.Join(dest, basename)
+	final = filepath.Join(dest, basename)
 	if _, err = os.Stat(final); err == nil {
 		log.Warnf("File already exists at '%s'. Removing source", final)
 		pdelete(source)
@@ -55,11 +55,12 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 	return
 }
 
-func pmove(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
-	if err = pcopy(source, dest, details, processor); err != nil {
+func pmove(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
+	if final, err = pcopy(source, dest, details, processor); err != nil {
 		return
 	}
-	return pdelete(source)
+	pdelete(source)
+	return
 }
 
 func pextract(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
@@ -87,7 +88,7 @@ func pextract(source, dest string, details *mime.Details, processor *c.Processor
 func pinstall(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
 	// To protect the overall system, we only "install" AppImages and scripts which are
 	// "installed" by moving them to ~/bin and setting the executable flag
-	if err = pmove(source, dest, details, processor); err == nil {
+	if dest, err = pmove(source, dest, details, processor); err == nil {
 		// this is handled by the post processor
 		processor.Properties["setexec"] = dest
 	}
