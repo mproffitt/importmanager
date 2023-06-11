@@ -33,15 +33,13 @@ func notification(notification chan string) {
 		DefaultIcon: "icon/default.png",
 		AppName:     "ImportManager",
 	})
+
 	for {
 		log.Debug("Checking for notification message")
 		select {
 		case msg := <-notification:
 			log.Infof("Sending message %s to notification system", msg)
 			note.Push("ImportManager", msg, "/home/user/icon.png", n.UR_NORMAL)
-		default:
-			// We dont really need to check this too often, one a second is fine
-			<-time.After(1 * time.Second)
 		}
 	}
 }
@@ -154,13 +152,13 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 
 		case <-time.After(10 * time.Microsecond):
 			finished, active = allFinished(active, activeWorkers)
-			log.Debugf("checking for ready work at %s", path)
 
 			go func() {
 				events.Lock()
 				for p, e := range events.paths {
 					if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
 						delete(events.paths, p)
+						log.Debugf("Creating job for path '%s'", p)
 						jobs <- job{
 							path:       p,
 							details:    e.details,
@@ -173,8 +171,8 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 				events.Unlock()
 
 				if len(events.paths) == 0 && notifyOnComplete && finished {
-					notifications <- fmt.Sprintf("Processing for path %s completed.", path)
 					notifyOnComplete = false
+					notifications <- fmt.Sprintf("Processing for path %s completed.", path)
 				}
 			}()
 		}
