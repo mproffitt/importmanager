@@ -39,6 +39,7 @@ func (p *Processor) String() string {
 	return fmt.Sprintf("%s (%s)", p.Handler, p.Type)
 }
 
+// Path A path object for processors
 type Path struct {
 	Path       string      `yaml:"path"`
 	Processors []Processor `yaml:"processors"`
@@ -65,11 +66,17 @@ const DefaultBufferSize = 50
 // New Load the config file
 func New(configFile string) (c *Config, err error) {
 	c = &config
+	log.SetFormatter(&log.TextFormatter{
+		DisableColors: true,
+		FullTimestamp: true,
+	})
+	log.SetOutput(os.Stdout)
 	go watch(context.Background(), configFile)
 	err = load(configFile)
 	return
 }
 
+// IsBuiltIn Test if the given processor is a builtin processor
 func IsBuiltIn(plugin string) bool {
 	for _, p := range DefaultHandlers {
 		if strings.EqualFold(plugin, p) {
@@ -90,7 +97,8 @@ func expandHome(path string) string {
 func load(filename string) (err error) {
 	config.RLock()
 	defer config.RUnlock()
-	log.Info("Loading config file")
+	pwd, _ := os.Getwd()
+	log.Infof("Loading config file %s/%s", pwd, filename)
 
 	var f []byte
 	if f, err = ioutil.ReadFile(filename); err != nil {
@@ -114,6 +122,7 @@ func load(filename string) (err error) {
 
 	switch config.LogLevel {
 	case "debug":
+		log.SetReportCaller(true)
 		log.SetLevel(log.DebugLevel)
 	case "error":
 		log.SetLevel(log.ErrorLevel)

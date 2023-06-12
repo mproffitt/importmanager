@@ -1,0 +1,12 @@
+[Unit]
+Description=ImportManager - File Management
+
+[Service]
+WorkingDirectory=%h/.local/share/importmanager
+ExecStart=%h/bin/importmanager -config config.yaml
+KillSignal=SIGINT
+TimeoutStopSec=60
+Restart=always
+
+[Install]
+WantedBy=default.target

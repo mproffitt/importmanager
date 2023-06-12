@@ -9,16 +9,34 @@ then sort the images to a new workbench location based on their filetype.
 This program represents an idea to enhance that for managing multiple filetypes
 based on rules defined against the mimetype for that file (group or category).
 
-## Execution
+## Build and installation
 
-Create a [config.yaml](./config.yaml) using the configuration settings below
-as a guide then run as:
+### Build
+
+```bash
+go mod tidy
+go build .
+mv importmanager ~/bin
+```
+
+### Installation
+
+- Create a working directory such as `~/.local/share/importmanager`
+- [OPTIONAL] Create a `plugins` directory in the same location - you'll put your
+  plugin scripts here.
+- Copy [config.yaml](./config.yaml) and edit it to suit your requirements
+- Copy [importmanager.service](./importmanager.service) to `~/.config/systemd/user`
+- Enable the service with `systemctl --user enable importmanager.service`
+- Start the service with  `systemctl --user start importmanager.service`
+
+### Manual execution
+
+To run the application manually, you must provide the config file as the only
+argument
 
 ```bash
 ./importmanager -config config.yaml
 ```
-
-You may also define this as a `systemd --user` service.
 
 ## Configuration
 

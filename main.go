@@ -174,13 +174,13 @@ func watchLocation(path *c.Path, channel watch, config *c.Config, notifications 
 		case <-channel.stop:
 			log.Infof("Shutting down listener for path %s", path.Path)
 			for {
-				// Wait fro all jobs to finish
+				// Wait for all jobs to finish
 				if a, _ := allFinished(active, activeWorkers); a {
 					log.Info("All jobs finished")
 					close(jobs)
 					break
 				}
-				<-time.After(10 * time.Microsecond)
+				<-time.After(1 * time.Millisecond)
 			}
 			log.Debug("Waiting for all goroutines to close")
 			wg.Wait()
@@ -188,7 +188,7 @@ func watchLocation(path *c.Path, channel watch, config *c.Config, notifications 
 			notify.Stop(channel.events)
 			channel.complete <- true
 
-		case <-time.After(10 * time.Microsecond):
+		case <-time.After(1 * time.Second):
 			finished, active = allFinished(active, activeWorkers)
 
 			go func() {
@@ -320,6 +320,7 @@ func main() {
 			log.Info("Shutting down listeners")
 			stop <- true
 			if <-finished {
+				log.Info("Done")
 				done <- true
 			}
 		}
@@ -341,5 +342,4 @@ func main() {
 	log.Info("Starting watchers")
 	setupPaths(config, stop, finished)
 	<-done
-	log.Info("Done")
 }
