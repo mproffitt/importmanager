@@ -39,11 +39,15 @@ func (p *Processor) String() string {
 	return fmt.Sprintf("%s (%s)", p.Handler, p.Type)
 }
 
+type Path struct {
+	Path       string      `yaml:"path"`
+	Processors []Processor `yaml:"processors"`
+}
+
 // Config Global config for the application
 type Config struct {
 	sync.RWMutex
-	Watch           []string      `yaml:"watch"`
-	Processors      []Processor   `yaml:"processors"`
+	Paths           []Path        `yaml:"paths"`
 	DelayInSeconds  time.Duration `yaml:"delayInSeconds"`
 	CleanupZeroByte bool          `yaml:"cleanupZeroByte"`
 	PluginPath      string        `yaml:"pluginDirectory"`
@@ -106,6 +110,8 @@ func load(filename string) (err error) {
 		config.BufferSize = DefaultBufferSize
 	}
 
+	config.PluginPath = expandHome(config.PluginPath)
+
 	switch config.LogLevel {
 	case "debug":
 		log.SetLevel(log.DebugLevel)
@@ -117,26 +123,18 @@ func load(filename string) (err error) {
 		log.SetLevel(log.InfoLevel)
 	}
 
-	for i, p := range config.Watch {
-		if strings.HasPrefix(p, "~/") {
-			config.Watch[i] = expandHome(p)
-			log.Debugf("Path %s became %s", p, config.Watch[i])
-		}
-	}
-
-	if strings.HasPrefix(config.PluginPath, "~/") {
-		config.PluginPath = expandHome(config.PluginPath)
-	}
-
-	for i, p := range config.Processors {
-		if strings.HasPrefix(p.Path, "~/") {
-			config.Processors[i].Path = expandHome(p.Path)
-			log.Debugf("Path %s became %s", p.Path, config.Processors[i].Path)
-		}
-		if config.PluginPath != "" && !IsBuiltIn(p.Handler) {
-			var handler string = filepath.Join(config.PluginPath, p.Handler)
-			if _, err = os.Stat(handler); !os.IsNotExist(err) {
-				config.Processors[i].Handler = handler
+	for i, p := range config.Paths {
+		config.Paths[i].Path = expandHome(p.Path)
+		for j, q := range p.Processors {
+			config.Paths[i].Processors[j].Path = expandHome(q.Path)
+			for k, v := range q.Properties {
+				config.Paths[i].Processors[j].Properties[k] = expandHome(v)
+			}
+			if config.PluginPath != "" && !IsBuiltIn(q.Handler) {
+				var handler string = filepath.Join(config.PluginPath, q.Handler)
+				if _, err = os.Stat(handler); !os.IsNotExist(err) {
+					config.Paths[i].Processors[j].Handler = handler
+				}
 			}
 		}
 	}
@@ -145,6 +143,7 @@ func load(filename string) (err error) {
 }
 
 func watch(ctx context.Context, filename string) {
+	log.Infof("Setting up watch for config file %s", filename)
 	events := n.Remove | n.Write | n.InModify | n.InCloseWrite
 	c := make(chan n.EventInfo, 1)
 	if err := n.Watch(filename, c, events); err != nil {
@@ -163,6 +162,10 @@ func watch(ctx context.Context, filename string) {
 			// and recreates a new one in place. This means we need to
 			// set up a new watch on the file to ensure we track further
 			// updates to it.
+			case n.Rename:
+				// Weird renaming bug that caused
+				// lstat to read /~ as filename
+				fallthrough
 			case n.Remove:
 				var i int = 0
 				for {
@@ -177,7 +180,7 @@ func watch(ctx context.Context, filename string) {
 						break
 					}
 					i++
-					time.Sleep(1 * time.Millisecond)
+					<-time.After(1 * time.Millisecond)
 				}
 				n.Stop(c)
 				if err := n.Watch(filename, c, events); err != nil {

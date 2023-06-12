@@ -4,36 +4,43 @@ delayInSeconds: 1
 
 mimeDirectories:
   - /usr/share/mime
-  - /usr/local/share/mime
   - ~/.local/share/mime
 
 # Cleanup zero byte files automatically
 cleanupZeroByte: true
 
-# The set of locations on disk to watch
-watch:
-  - ~/Descargas
-  - ~/Imágenes/input
+paths:
+  - path: ~/Descargas
+    processors:
+      - type: image
+        handler: move
+        path: ~/Imágenes/input
+      - type: application/gzip
+        handler: extract
+        path: ~/test/{{.date}}
+        properties:
+          chown: mproffitt:admin
+          chmod: u+rw,g=u-w,o=
+      - type: application/x-executable
+        handler: install
+        path: ~/bin
+        properties:
+          lowercase-destination: true
+          strip-extension: true
+  - path: ~/Imágenes/input
+    processors:
+      - type: image/x-xcf
+        handler: move
+        path: ~/Imágenes/workbench/xcf
+      - type: image/x-dcraw
+        handler: move
+        path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}
+      - type: "*"
+        handler: move
+        path: ~/Descargas
 
 pluginDirectory: plugins
 
 logLevel: info
 
 bufferSize: 50
-
-processors:
-  - type: image/x-xcf
-    handler: move
-    path: ~/Imágenes/workbench/xcf
-  - type: application/gzip
-    handler: extract
-    path: ~/test/{{.date}}
-  - type: application/x-executable
-    handler: install
-    path: ~/bin
-    properties:
-      lowercase-destination: true
-      strip-extension: true
-  - type: image/x-dcraw
-    handler: move
-    path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}

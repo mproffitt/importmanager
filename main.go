@@ -28,6 +28,20 @@ type watch struct {
 	events   chan notify.EventInfo
 }
 
+type job struct {
+	path       string
+	details    m.Details
+	processors []c.Processor
+	czb        bool
+	ready      bool
+	complete   chan bool
+}
+
+type lockable struct {
+	sync.RWMutex
+	paths map[string]event
+}
+
 func notification(notification chan string) {
 	var note *n.Notificator = n.New(n.Options{
 		DefaultIcon: "icon/default.png",
@@ -44,42 +58,66 @@ func notification(notification chan string) {
 	}
 }
 
-func setupWatches(config *c.Config, stop, finished chan bool) {
-	channels := make([]watch, len(config.Watch))
+func contains(what string, where []string) bool {
+	for _, p := range where {
+		if what == p {
+			return true
+		}
+	}
+	return false
+}
+
+func setupPaths(config *c.Config, stop, finished chan bool) {
+	channels := make(map[string]watch)
 	var notifications chan string = make(chan string)
 	go notification(notifications)
 
-	for i := 0; i < len(config.Watch); i++ {
-		channels[i] = watch{
-			stop:     make(chan bool, 1),
-			complete: make(chan bool, 1),
-			events:   make(chan notify.EventInfo),
+	for {
+		var configpaths []string = make([]string, 0)
+		for i, p := range config.Paths {
+			configpaths = append(configpaths, p.Path)
+			if _, ok := channels[p.Path]; !ok {
+				log.Infof("Adding channel '%s'", p.Path)
+				channels[p.Path] = watch{
+					stop:     make(chan bool, 1),
+					complete: make(chan bool, 1),
+					events:   make(chan notify.EventInfo),
+				}
+				go watchLocation(&config.Paths[i], channels[p.Path], config, notifications)
+			}
 		}
-		go watchLocation(config.Watch[i], channels[i], config, notifications)
+
+		for k := range channels {
+			if !contains(k, configpaths) {
+				log.Infof("Deleting channel '%s'", k)
+				channels[k].stop <- true
+				<-channels[k].complete
+				delete(channels, k)
+			}
+		}
+		var breakLoop bool = false
+		select {
+		case <-stop:
+			breakLoop = true
+			break
+		default:
+			<-time.After(1 * time.Second)
+		}
+
+		if breakLoop {
+			break
+		}
 	}
-	<-stop
-	for i := 0; i < len(channels); i++ {
-		channels[i].stop <- true
-		<-channels[i].complete
+
+	for k := range channels {
+		channels[k].stop <- true
+		<-channels[k].complete
 	}
 	finished <- true
+
 }
 
-type job struct {
-	path       string
-	details    m.Details
-	processors []c.Processor
-	czb        bool
-	ready      bool
-	complete   chan bool
-}
-
-type lockable struct {
-	sync.RWMutex
-	paths map[string]event
-}
-
-func watchLocation(path string, channel watch, config *c.Config, notifications chan string) {
+func watchLocation(path *c.Path, channel watch, config *c.Config, notifications chan string) {
 	var (
 		active        []bool
 		wg            sync.WaitGroup
@@ -93,19 +131,19 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 
 	for i := 0; i < config.BufferSize; i++ {
 		wg.Add(1)
-		log.Debugf("Starting %s worker %d", path, i)
+		log.Debugf("Starting %s worker %d", path.Path, i)
 		activeWorkers = append(activeWorkers, make(chan bool))
 		go pathWorker(jobs, activeWorkers[len(activeWorkers)-1], &wg)
 	}
 
 	active = make([]bool, len(activeWorkers))
 
-	if err := notify.Watch(path, channel.events, notify.All); err != nil {
+	if err := notify.Watch(path.Path, channel.events, notify.All); err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	log.Info("Starting listening to: ", path)
+	log.Info("Starting listening to: ", path.Path)
 
 	var finished bool = false
 	for {
@@ -134,7 +172,7 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 				}
 			}
 		case <-channel.stop:
-			log.Infof("Shutting down listener for path %s", path)
+			log.Infof("Shutting down listener for path %s", path.Path)
 			for {
 				// Wait fro all jobs to finish
 				if a, _ := allFinished(active, activeWorkers); a {
@@ -162,7 +200,7 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 						jobs <- job{
 							path:       p,
 							details:    e.details,
-							processors: config.Processors,
+							processors: path.Processors,
 							czb:        config.CleanupZeroByte,
 							ready:      true,
 						}
@@ -172,7 +210,7 @@ func watchLocation(path string, channel watch, config *c.Config, notifications c
 
 				if len(events.paths) == 0 && notifyOnComplete && finished {
 					notifyOnComplete = false
-					notifications <- fmt.Sprintf("Processing for path %s completed.", path)
+					notifications <- fmt.Sprintf("Processing for path %s completed.", path.Path)
 				}
 			}()
 		}
@@ -243,9 +281,11 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 	}
 
 	// If we still don't have a processor fall back to catagory level
+	// This will also allow wildcard for prrocessor.Type so anything not
+	// handled can be handled by a fallback.
 	if processor == nil {
 		for i, p := range processors {
-			if p.Type == details.Catagory {
+			if p.Type == details.Catagory || p.Type == "*" {
 				processor = &processors[i]
 				break
 			}
@@ -299,7 +339,7 @@ func main() {
 
 	log.Debug(fmt.Sprintf("%+v", config))
 	log.Info("Starting watchers")
-	setupWatches(config, stop, finished)
+	setupPaths(config, stop, finished)
 	<-done
 	log.Info("Done")
 }

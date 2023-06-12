@@ -52,7 +52,7 @@ func Process(source string, details *mime.Details, processor *c.Processor) (err 
 		}
 	} else {
 		log.Info("Using plugin handler")
-		if err = runPlugin(source, dest, details, processor); err != nil {
+		if final, err = runPlugin(source, dest, details, processor); err != nil {
 			return
 		}
 	}

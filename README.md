@@ -22,29 +22,66 @@ You may also define this as a `systemd --user` service.
 
 ## Configuration
 
-There are two primary sections to the configuration file, `watch` and
-`processors`
+### Paths
 
-- `watch` A list of directories to watch for events.
-  Primarily, the following system events are listened for:
+```yaml
+paths:
+  - path: /path/to/directory/to/watch
+    processors:
+      - [processor]
+```
 
-  ```golang
-  notify.All = notify.Create | notify.Remove | notify.Write | notify.Rename
-  ```
+The main configuration section is the `paths` element. This contains a set of
+paths to watch and [processors](#processors) to apply against that path.
 
-  See [notify](https://pkg.go.dev/github.com/rjeczalik/notify)
+For each path, the application will listen for the following events:
 
-  If directories start with `~/`, this is expanded to user home.
+```golang
+notify.All = notify.Create | notify.Remove | notify.Write | notify.Rename
+```
 
-- `processors` This section details how to process each type of file using the
-  mime type of the file as a reference.
+See [notify](https://pkg.go.dev/github.com/rjeczalik/notify)
+
+If directories start with `~/`, this is expanded to user home.
+
+The configuration file is also watched using a slightly expanded set of notify
+events to allow for automatic reloading of the file on change.
 
 ### Processors
 
-Processors are automatically reloaded. This means that even with the application
-running, new processors can be added and automatically take effect without
-having to restart the application. This is not (currently) true for `watch` or
-other configuration settings.
+```yaml
+  processors:
+    - type: mime/type
+      handler: [builtin|scriptname]
+      path: /path/to/destination/directory
+      properties:
+        property-1: property-value
+        property-2: property-value
+        ...
+```
+
+> **Warning**
+>
+> Processors can contain both wildcards and catagory level operations and no
+> recursion check is undertaken. This means that the following config is
+> completely valid and without due care, it's possible to bounce files
+> continually between two locations.
+>
+> ```yaml
+> paths:
+>   - path: /dir
+>     processors:
+>       - type: "*"
+>         handler: move
+>         path: dir2
+>   - path: /dir2
+>     processors:
+>       - type: "*"
+>         handler: move
+>         path: /dir
+> ```
+>
+> This is a known bug and one I intend to fix in a future iteration.
 
 Each processor accepts the following options:
 
@@ -52,6 +89,9 @@ Each processor accepts the following options:
   - Final type (e.g. `image/x-canon-cr3`)
   - Parent type (e.g. `image/x-dcraw`)
   - Category type (e.g. `image`)
+  - `*` This is placed at the same level as category and can be used when no
+    other processor matches.
+
 - `path` The destination path to write into. Each path may accept the following
   templated arguments
   - `{{.ext}}` The File extension (without the leading `.`)
@@ -59,8 +99,9 @@ Each processor accepts the following options:
     in case of images, the `CreateDate` taken from ExifData if available. If
     exif data is used, this can be controlled through the property `exif-date`
     (see below).
-  - `{{.ucext}}` This gives an upper case extenstion instead of the standard
+  - `{{.ucext}}` This gives an upper case extension instead of the standard
     file lowercase extension variant (e.g. `cr2` becomes `CR2`).
+
 - `handler` This is the handler to run for this type of file. By default, this
   should be one of the following built-in types:
   - `move` Moves the file from the watched directory to the destination
@@ -83,7 +124,7 @@ Each processor accepts the following options:
     > installing packages without verification or validation.
 
 - `properties` Custom properties to control what happens to the file during
-  handling. These are broadly split into 3 catagories, pre processing, post
+  handling. These are broadly split into 3 categories, pre processing, post
   processing and execution.
 
 ### Pre Processing properties
@@ -111,7 +152,7 @@ The install handler currently accepts the following additional properties
 
 ### Other configuration options
 
-- `delayInSeconds` One of the drawvbacks to `inotify` is its not possible to
+- `delayInSeconds` One of the drawbacks to `inotify` is its not possible to
   know when a file operation is completed. This setting controls how long to
   wait after the last received event before triggering the handler.
 
@@ -163,6 +204,11 @@ Example:
   }
 }
 ```
+
+To enable the built in post processors for your script, the last line of output
+should be the final location. This will be tested with `os.Stat` and if the path
+exists, post-processing will take place against that location. Your user *must*
+have write access to that location for post processing to work.
 
 Sample plugins:
 

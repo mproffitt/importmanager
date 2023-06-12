@@ -1,6 +1,7 @@
 package processing
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -32,7 +33,7 @@ func toArgumentJSON(source, dest string, details *m.Details, properties map[stri
 	return string(b)
 }
 
-func runPlugin(source, dest string, details *m.Details, processor *c.Processor) (err error) {
+func runPlugin(source, dest string, details *m.Details, processor *c.Processor) (final string, err error) {
 	if _, err = os.Stat(processor.Handler); os.IsNotExist(err) {
 		err = fmt.Errorf("Plugin file has been moved or deleted from disk. %s", err)
 		return
@@ -57,11 +58,33 @@ func runPlugin(source, dest string, details *m.Details, processor *c.Processor) 
 	}
 
 	cmd := exec.Command(executable, []string{processor.Handler, args}...)
+	reader, _ := cmd.StdoutPipe()
+	cmd.Stderr = cmd.Stdout
+	done := make(chan bool)
+	scanner := bufio.NewScanner(reader)
+
+	go func() {
+		var line string
+		for scanner.Scan() {
+			line = scanner.Text()
+			log.Info(line)
+		}
+		// if the last line of output is a valid system path,
+		// we use that as final for post processing
+		if _, err = os.Stat(line); err == nil {
+			final = line
+		}
+		done <- true
+	}()
+
 	log.Infof("Triggering plugin command: %s", cmd.String())
-	if response, err = cmd.CombinedOutput(); err != nil {
+	if err = cmd.Start(); err != nil {
 		err = fmt.Errorf("Error in plugin %s: %s - %s", processor.Handler, err.Error(), string(response))
 		return
 	}
-	log.Infof("%s: %s", processor.Handler, string(response))
+	<-done
+
+	err = cmd.Wait()
+	log.Infof("Using '%s' as final destination", final)
 	return
 }
