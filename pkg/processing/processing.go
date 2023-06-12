@@ -174,7 +174,7 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 			if isDir(dest) {
 				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
 					if e != nil {
-						err = e
+						log.Error(e)
 						return
 					}
 					err = os.Chown(path, uid, gid)
@@ -194,19 +194,18 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 			if isDir(dest) {
 				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
 					if e != nil {
-						err = e
+						log.Error(e)
 						return
 					}
 					_, _, err = set.Chmod(path)
-					// Set the executable bit for directories and any file found in a `bin´ folder
+					// Set the executable bit for directories and
+					// any file found in a `bin´ folder
 					if isDir(path) || pathInBinDir(path) {
 						var s m.Set
 						if s, err = m.Parse("+x"); err != nil {
 							return
 						}
-						if _, _, err = s.Chmod(path); err != nil {
-							return
-						}
+						_, _, err = s.Chmod(path)
 					}
 					return
 				})
