@@ -88,7 +88,20 @@ func pextract(source, dest string, details *mime.Details, processor *c.Processor
 	defer file.Close()
 
 	log.Infof("Extracting '%s' to '%s'", source, final)
-	err = a.Archive(context.TODO(), file, final, nil)
+	if err = a.Archive(context.TODO(), file, final, nil); err != nil {
+		return
+	}
+
+	for k, v := range processor.Properties {
+		switch k {
+		case "cleanup-source":
+			if b, _ := strconv.ParseBool(v); b {
+				if _, err = pdelete(source); err != nil {
+					return
+				}
+			}
+		}
+	}
 	return
 }
 

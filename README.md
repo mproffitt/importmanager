@@ -91,7 +91,7 @@ events to allow for automatic reloading of the file on change.
 >     processors:
 >       - type: "*"
 >         handler: move
->         path: dir2
+>         path: /dir2
 >   - path: /dir2
 >     processors:
 >       - type: "*"
