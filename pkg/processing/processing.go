@@ -3,9 +3,10 @@ package processing
 import (
 	"bytes"
 	"html/template"
+	"io/fs"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -42,10 +43,11 @@ func Process(source string, details *mime.Details, processor *c.Processor) (err 
 		return
 	}
 
+	var final string
 	log.Infof("Checking processor type '%s'", processor.Handler)
 	if c.IsBuiltIn(processor.Handler) {
 		log.Info("Using builtin handler")
-		if err = builtIn(source, dest, details, processor); err != nil {
+		if final, err = builtIn(source, dest, details, processor); err != nil {
 			return
 		}
 	} else {
@@ -55,23 +57,24 @@ func Process(source string, details *mime.Details, processor *c.Processor) (err 
 		}
 	}
 
-	var basename string = path.Base(source)
-	err = postProcess(path.Join(dest, basename), details, processor)
+	if final != "" {
+		err = postProcess(final, details, processor)
+	}
 	return
 }
 
-func builtIn(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+func builtIn(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
 	switch processor.Handler {
 	case "copy":
-		_, err = pcopy(source, dest, details, processor)
+		final, err = pcopy(source, dest, details, processor)
 	case "move":
-		_, err = pmove(source, dest, details, processor)
+		final, err = pmove(source, dest, details, processor)
 	case "extract":
-		err = pextract(source, dest, details, processor)
+		final, err = pextract(source, dest, details, processor)
 	case "install":
-		err = pinstall(source, dest, details, processor)
+		final, err = pinstall(source, dest, details, processor)
 	case "delete":
-		err = pdelete(source)
+		final, err = pdelete(source)
 	}
 	return
 }
@@ -137,6 +140,17 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 	return dest, nil
 }
 
+func isDir(path string) bool {
+	if fi, err := os.Stat(path); err == nil {
+		return fi.IsDir()
+	}
+	return false
+}
+
+func pathInBinDir(path string) bool {
+	return strings.EqualFold(filepath.Base(filepath.Dir(path)), "bin")
+}
+
 func postProcess(dest string, details *mime.Details, processor *c.Processor) (err error) {
 	log.Infof("Triggering postProcessor for %s", dest)
 	for k, v := range processor.Properties {
@@ -157,6 +171,17 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 				return
 			}
 			gid, _ = strconv.Atoi(g.Gid)
+			if isDir(dest) {
+				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
+					if e != nil {
+						err = e
+						return
+					}
+					err = os.Chown(path, uid, gid)
+					return
+				})
+				break
+			}
 			if err = os.Chown(dest, uid, gid); err != nil {
 				return
 			}
@@ -165,6 +190,27 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 			var set m.Set
 			if set, err = m.Parse(v); err != nil {
 				return
+			}
+			if isDir(dest) {
+				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
+					if e != nil {
+						err = e
+						return
+					}
+					_, _, err = set.Chmod(path)
+					// Set the executable bit for directories and any file found in a `bin´ folder
+					if isDir(path) || pathInBinDir(path) {
+						var s m.Set
+						if s, err = m.Parse("+x"); err != nil {
+							return
+						}
+						if _, _, err = s.Chmod(path); err != nil {
+							return
+						}
+					}
+					return
+				})
+				break
 			}
 			if _, _, err = set.Chmod(dest); err != nil {
 				return

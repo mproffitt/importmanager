@@ -29,7 +29,9 @@ func pcopy(source, dest string, details *mime.Details, processor *c.Processor) (
 	final = filepath.Join(dest, basename)
 	if _, err = os.Stat(final); err == nil {
 		log.Warnf("File already exists at '%s'. Removing source", final)
-		pdelete(source)
+		if _, err = pdelete(source); err != nil {
+			return
+		}
 		err = fmt.Errorf("copy-deleted")
 		return
 	}
@@ -64,11 +66,11 @@ func pmove(source, dest string, details *mime.Details, processor *c.Processor) (
 		}
 		return
 	}
-	pdelete(source)
+	_, err = pdelete(source)
 	return
 }
 
-func pextract(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+func pextract(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
 	var (
 		file     *os.File
 		basename string = path.Base(source)
@@ -78,30 +80,30 @@ func pextract(source, dest string, details *mime.Details, processor *c.Processor
 	if strings.HasSuffix(basename, ".tar") {
 		basename = strings.TrimSuffix(basename, ".tar")
 	}
-	dest = filepath.Join(dest, basename)
+	final = filepath.Join(dest, basename)
 
 	if file, err = os.Open(source); err != nil {
 		return
 	}
 	defer file.Close()
 
-	log.Infof("Extracting '%s' to '%s'", source, dest)
-	err = a.Archive(context.TODO(), file, dest, nil)
+	log.Infof("Extracting '%s' to '%s'", source, final)
+	err = a.Archive(context.TODO(), file, final, nil)
 	return
 }
 
-func pinstall(source, dest string, details *mime.Details, processor *c.Processor) (err error) {
+func pinstall(source, dest string, details *mime.Details, processor *c.Processor) (final string, err error) {
 	// To protect the overall system, we only "install" AppImages and scripts which are
 	// "installed" by moving them to ~/bin and setting the executable flag
-	if dest, err = pmove(source, dest, details, processor); err == nil {
+	if final, err = pmove(source, dest, details, processor); err == nil {
 		// this is handled by the post processor
-		(*processor).Properties["setexec"] = dest
+		(*processor).Properties["setexec"] = final
 	}
 	return
 }
 
-func pdelete(source string) (err error) {
+func pdelete(source string) (final string, err error) {
 	log.Infof("Deleting path '%s'.", source)
-	os.Remove(source)
+	err = os.Remove(source)
 	return
 }
