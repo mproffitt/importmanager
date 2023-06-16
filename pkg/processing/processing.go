@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,8 +39,21 @@ func Process(source string, details *mime.Details, processor *c.Processor) (err 
 	}
 
 	var dest string
-	dest, err = preProcess(source, processor.Path, details, processor)
-	if err != nil {
+	if dest, err = preProcess(source, processor.Path, details, processor); err != nil {
+		return
+	}
+
+	// This will form part of the dry-run logic for validating handlers.
+	//
+	// At present I see no viable reason to action beyond this point
+	// as the validation is about testing handlers do not `ping-pong`
+	// files between directories
+	if details.DryRun {
+		var path string = path.Join(dest, filepath.Base(source))
+		log.Warnf(
+			"Processing: Adding dry run path %s for type %s (processor %s %s)",
+			path, details.Type, processor.Type, processor.Handler)
+		c.AddDryRunPath(details.Type, path)
 		return
 	}
 
@@ -96,13 +110,14 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 			p["ucext"] = strings.Replace(ext, ".", "", 1)
 
 		case "include-date-directory":
-			if b, _ := strconv.ParseBool(value); !b {
+			if b, _ := strconv.ParseBool(value); !b || details.DryRun {
 				continue
 			}
-			fi, _ := os.Stat(path)
 
+			var date string = "2023:09:12 23:34:00+00:00"
+			fi, _ := os.Stat(path)
 			// Default to STAT Modification time
-			var date string = fi.ModTime().Format("2006-01-02")
+			date = fi.ModTime().Format("2006-01-02")
 
 			// If this is an image, try and use the ExifData
 			if details.Catagory == "image" {
@@ -133,8 +148,10 @@ func preProcess(path, dest string, details *mime.Details, processor *c.Processor
 		return "", err
 	}
 
-	if err = os.MkdirAll(dest, 0750); err != nil {
-		return "", err
+	if !details.DryRun {
+		if err = os.MkdirAll(dest, 0750); err != nil {
+			return "", err
+		}
 	}
 
 	return dest, nil
@@ -174,7 +191,7 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 			if isDir(dest) {
 				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
 					if e != nil {
-						log.Error(e)
+						log.Errorf("Unable to walk directory for chown %s - %s", dest, e.Error())
 						return
 					}
 					err = os.Chown(path, uid, gid)
@@ -194,7 +211,7 @@ func postProcess(dest string, details *mime.Details, processor *c.Processor) (er
 			if isDir(dest) {
 				err = filepath.WalkDir(dest, func(path string, d fs.DirEntry, e error) (err error) {
 					if e != nil {
-						log.Error(e)
+						log.Errorf("Unable to walk directory %s for chmod - %s", dest, e.Error())
 						return
 					}
 					_, _, err = set.Chmod(path)

@@ -33,6 +33,7 @@ type Processor struct {
 	Path       string            `yaml:"path"`
 	Handler    string            `yaml:"handler"`
 	Properties map[string]string `yaml:"properties"`
+	Negated    bool
 }
 
 func (p *Processor) String() string {
@@ -70,7 +71,6 @@ func New(configFile string) (c *Config, err error) {
 		DisableColors: true,
 		FullTimestamp: true,
 	})
-	log.SetOutput(os.Stdout)
 	go watch(context.Background(), configFile)
 	err = load(configFile)
 	return
@@ -135,6 +135,10 @@ func load(filename string) (err error) {
 	for i, p := range config.Paths {
 		config.Paths[i].Path = expandHome(p.Path)
 		for j, q := range p.Processors {
+			if string(q.Type[0]) == "!" {
+				q.Type = q.Type[1:]
+				q.Negated = true
+			}
 			config.Paths[i].Processors[j].Path = expandHome(q.Path)
 			for k, v := range q.Properties {
 				config.Paths[i].Processors[j].Properties[k] = expandHome(v)

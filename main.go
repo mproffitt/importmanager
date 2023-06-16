@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"sync"
@@ -139,7 +140,7 @@ func watchLocation(path *c.Path, channel watch, config *c.Config, notifications 
 	active = make([]bool, len(activeWorkers))
 
 	if err := notify.Watch(path.Path, channel.events, notify.All); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to set up watch for path %s - %s", path.Path, err.Error())
 		return
 	}
 
@@ -155,11 +156,10 @@ func watchLocation(path *c.Path, channel watch, config *c.Config, notifications 
 				delete(events.paths, ei.Path())
 				events.RUnlock()
 			default:
-				if _, err := os.Stat(ei.Path()); err != nil {
+				var details = m.Catagories.FindCatagoryFor(ei.Path())
+				if _, err := os.Stat(ei.Path()); err != nil || details == nil {
 					continue
 				}
-				var details = m.Catagories.FindCatagoryFor(ei.Path())
-				log.Debug(details)
 				if details.Type != "application/x-partial-download" {
 					events.RLock()
 					events.paths[ei.Path()] = event{
@@ -250,13 +250,19 @@ func pathWorker(jobs chan job, running chan bool, wg *sync.WaitGroup) {
 	}
 }
 
-func handlePath(path string, details m.Details, processors []c.Processor, czb bool) {
-	log.Info("Handling path", path)
-	if fi, err := os.Stat(path); err == nil {
-		if fi.Size() == 0 && czb {
-			log.Infof("Deleting path '%s'. File is empty", path)
-			os.Remove(path)
-			return
+func handlePath(path string, details m.Details, processors []c.Processor, czb bool) (err error) {
+	log.Infof("Handling path %s", path)
+	var (
+		dryrun bool = details.DryRun
+		fi     fs.FileInfo
+	)
+	if !dryrun {
+		if fi, err = os.Stat(path); err == nil {
+			if fi.Size() == 0 && czb {
+				log.Infof("Deleting path '%s'. File is empty", path)
+				os.Remove(path)
+				return
+			}
 		}
 	}
 
@@ -264,7 +270,7 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 
 	// try find an exact processor for this mimetype
 	for i, p := range processors {
-		if p.Type == details.Type {
+		if p.Type == details.Type && !p.Negated {
 			processor = &processors[i]
 			break
 		}
@@ -273,7 +279,7 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 	// If we don't have an exact match and this is a subclass, try that
 	if processor == nil && details.IsSubClass() {
 		for i, p := range processors {
-			if details.IsSubClassOf(p.Type) {
+			if details.IsSubClassOf(p.Type) && !p.Negated {
 				processor = &processors[i]
 				break
 			}
@@ -281,26 +287,30 @@ func handlePath(path string, details m.Details, processors []c.Processor, czb bo
 	}
 
 	// If we still don't have a processor fall back to catagory level
-	// This will also allow wildcard for prrocessor.Type so anything not
+	// This will also allow wildcard for processor.Type so anything not
 	// handled can be handled by a fallback.
 	if processor == nil {
 		for i, p := range processors {
-			if p.Type == details.Catagory || p.Type == "*" {
+			if (p.Type == details.Catagory || p.Type == "*") && !p.Negated {
 				processor = &processors[i]
 				break
 			}
 		}
 		if processor == nil {
 			log.Errorf("No processor defined for type '%s | %s | %s'", details.Type, details.SubClass, details.Catagory)
+			if details.DryRun {
+				c.DeleteDryRunPath(path)
+			}
 			return
 		}
 	}
 
 	log.Infof("Found processor '%s' for path %s", processor.String(), path)
 	if err := p.Process(path, &details, processor); err != nil {
-		log.Error(err)
+		log.Errorf("Unable to process path %s - %s", path, err.Error())
 	}
 	log.Infof("Completed parsing for %s", path)
+	return
 }
 
 func main() {
@@ -337,6 +347,7 @@ func main() {
 		log.Fatalf("Config file is invalid or doesn't exist. %q", err)
 		os.Exit(1)
 	}
+	c.DryRun(config, handlePath)
 
 	log.Debug(fmt.Sprintf("%+v", config))
 	log.Info("Starting watchers")

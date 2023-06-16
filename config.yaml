@@ -32,10 +32,19 @@ paths:
       - type: image/x-xcf
         handler: move
         path: ~/Imágenes/workbench/xcf
+      - type: image/jpeg
+        handler: move
+        path: ~/Imágenes/final/jpg/{{.date}}
+      - type: image/png
+        handler: move
+        path: ~/Imágenes/final/png/{{.date}}
+
       - type: image/x-dcraw
         handler: move
         path: ~/Imágenes/workbench/{{.ucext}}/{{.date}}
-      - type: "*"
+        properties:
+          compare-sha: true
+      - type: "!image"
         handler: move
         path: ~/Descargas
 

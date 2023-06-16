@@ -68,6 +68,9 @@ type Details struct {
 	Type      string   `json:"type"`
 	SubClass  []string `json:"subclass"`
 	Extension string   `json:"extension"`
+
+	// Used to test configuration
+	DryRun bool
 }
 
 // IsExecutable - Test if the current mime version should be executable
@@ -104,7 +107,9 @@ func (c catagories) FindCatagoryFor(what string) (details *Details) {
 			var matched bool = false
 			details.Type = item.Type
 			if strings.EqualFold(item.Type, what) || item.AliasMatches(what) {
-				details.Extension = strings.Replace(item.Globs[0].Pattern, "*", "", 1)
+				if len(item.Globs) > 0 {
+					details.Extension = strings.Replace(item.Globs[0].Pattern, "*", "", 1)
+				}
 				matched = true
 			}
 
@@ -122,6 +127,10 @@ func (c catagories) FindCatagoryFor(what string) (details *Details) {
 		}
 	}
 
+	if details.Catagory == what {
+		return
+	}
+
 	// If we haven't got a match, check magic
 	if _, err := os.Stat(what); err == nil {
 		if mtype, err := mimetype.DetectFile(what); err == nil {
@@ -129,6 +138,22 @@ func (c catagories) FindCatagoryFor(what string) (details *Details) {
 		}
 	}
 	return nil
+}
+
+// SplitPathByMime splits a path into component parts dir, basename, extension
+func SplitPathByMime(filename string) (dirname, basename, extensions string) {
+	dirname, basename = path.Split(filename)
+	var tmp string = basename
+	for {
+		var d *Details
+		if d = Catagories.FindCatagoryFor(tmp); d == nil {
+			break
+		}
+		tmp = tmp[:len(tmp)-len(d.Extension)]
+		extensions = d.Extension + extensions
+	}
+	basename = basename[:len(basename)-len(extensions)]
+	return
 }
 
 // Catagories Set of all available mime types sorted by catagory
@@ -147,7 +172,16 @@ func loadCategory(dir string) (mimes []Type, err error) {
 			defer file.Close()
 			// ignore errors and just load what we can
 			if err := xml.NewDecoder(file).Decode(&mime); err == nil {
-				mimes = append(mimes, mime)
+				var found bool = false
+				for _, v := range mimes {
+					if v.Type == mime.Type {
+						found = true
+						break
+					}
+				}
+				if !found {
+					mimes = append(mimes, mime)
+				}
 			}
 		}
 		return nil
@@ -184,7 +218,3 @@ func Load(paths []string) {
 		loadTypes(p)
 	}
 }
-
-//func init() {
-//	loadTypes("/usr/share/mime")
-//}
