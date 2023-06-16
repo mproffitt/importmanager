@@ -80,10 +80,11 @@ events to allow for automatic reloading of the file on change.
 
 > **Warning**
 >
-> Processors can contain both wildcards and catagory level operations and no
-> recursion check is undertaken. This means that the following config is
-> completely valid and without due care, it's possible to bounce files
-> continually between two locations.
+> Processors can contain both wildcards and catagory level operations and whilst
+> some recursion check is undertaken, it is not currently possible to detect
+> deeply recursive moves. For example:
+>
+> This can be detected:
 >
 > ```yaml
 > paths:
@@ -99,16 +100,85 @@ events to allow for automatic reloading of the file on change.
 >         path: /dir
 > ```
 >
-> This is a known bug and one I intend to fix in a future iteration.
+> But this may not be:
+>
+> ```yaml
+> paths:
+>   - path: /dir
+>     processors:
+>       - type: "image"
+>         handler: move
+>         path: /dir2
+>   - path: /dir2
+>     processors:
+>       - type: "image/jpg"
+>         handler: move
+>         path: /dir3
+>   - path: /dir3
+>     processors:
+>       - type: "image/jpg"
+>         handler: move
+>         path: /dir4
+>   - path: /dir4
+>     processors:
+>       - type: "image/jpg"
+>         handler: move
+>         path: /dir
+> ```
+
+The dry run functionality tries to account for this by running the processors
+multiple times but there may still be edge cases whereby recursion cannot be
+detected.
+
+to counteract this, try and keep your configuration to the fewest watch
+locations possible and try not to move files to other watch locations unless
+very strict rules are in place for handling files which are placed into that
+location.
+
+As an example of a good set of rules for processing images:
+
+```yaml
+paths:
+  - path: ~/Downloads
+    processors:
+      # All images are moved to the image path where there are specific
+      # processors defined for images
+      - type: image
+        path: ~/Images/sortme
+        handler: move
+
+      # Any executables that are downloaded are automatically moved to ~/bin
+      - type: application/x-executable
+        path ~/bin
+        handler: install
+
+      # Any Microsoft word documents are moved to the documents folder
+      - type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+        path: ~/Documents
+        handler: move
+
+  - path: ~/Images/sortme
+    processors:
+      # Any JPEG images are moved to a dated folder under ~/Images/jpg
+      - type: image/jpg
+        path: ~/Images/jpg/{{.date}}
+        handler: move
+
+      # Anything that is *not* an image is moved back to downloads
+      - type: !image
+        path: ~/Downloads
+        handler: move
+```
 
 Each processor accepts the following options:
 
 - `type` The mime type of the file to handle. This may be:
-  - Final type (e.g. `image/x-canon-cr3`)
+  - Final type (e.g. `image/x-canon-cr3`).
   - Parent type (e.g. `image/x-dcraw`)
   - Category type (e.g. `image`)
   - `*` This is placed at the same level as category and can be used when no
     other processor matches.
+  - By placing a `!` in front of the type, that type is negated.
 
 - `path` The destination path to write into. Each path may accept the following
   templated arguments
@@ -161,12 +231,24 @@ Each processor accepts the following options:
 Execution properties control how each builtin method behaves. Each method may
 implement its own properties.
 
+#### `move` and `copy`
+
+- `compare-sha` If a duplicate file is detected and this property is set, the
+  function will calculate sha256 sums for both source and destination files.
+  If the sha256 sums do not match, the filename will have a numeric integer
+  attached to it and the copy will commence. For example, `mydoc.docx` would
+  become `mydoc_1.docx`.
+
 #### `install`
 
 The install handler currently accepts the following additional properties
 
 - `lowercase-destination` The final filename will be converted to lowercase
-- `strip-extension` Strips the file extension from the final destination filename
+- `strip-extension` Strips the file extension from the final destination
+  filename
+
+`install` also inherits `compare-sha` as it uses `copy` as part of its
+operation.
 
 ### Other configuration options
 
@@ -235,6 +317,9 @@ Sample plugins:
 
 ## TO DO
 
+- Ambiguous type handling. For example, where multiple mime types share the
+  same extension
+- processors should accept a file extension as well as a mime
 - Cross platform capability?
 
 ## Contributing
