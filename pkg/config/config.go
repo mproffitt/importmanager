@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	m "github.com/mproffitt/importmanager/pkg/mime"
@@ -27,36 +26,8 @@ var DefaultHandlers []string = []string{
 
 var config Config
 
-// Processor How to handle a particular file type
-type Processor struct {
-	Type       string            `yaml:"type"`
-	Path       string            `yaml:"path"`
-	Handler    string            `yaml:"handler"`
-	Properties map[string]string `yaml:"properties"`
-	Negated    bool
-}
-
 func (p *Processor) String() string {
 	return fmt.Sprintf("%s (%s)", p.Handler, p.Type)
-}
-
-// Path A path object for processors
-type Path struct {
-	Path       string      `yaml:"path"`
-	Processors []Processor `yaml:"processors"`
-}
-
-// Config Global config for the application
-type Config struct {
-	sync.RWMutex
-	Paths           []Path        `yaml:"paths"`
-	DelayInSeconds  time.Duration `yaml:"delayInSeconds"`
-	CleanupZeroByte bool          `yaml:"cleanupZeroByte"`
-	PluginPath      string        `yaml:"pluginDirectory"`
-	BufferSize      int           `yaml:"bufferSize"`
-	LogLevel        string        `yaml:"logLevel"`
-	MimeDirectories []string      `yaml:"mimeDirectories"`
-	pathHandler     handler
 }
 
 // MaxRetries Maximum number of retries for operations
@@ -88,12 +59,21 @@ func IsBuiltIn(plugin string) bool {
 	return false
 }
 
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		dirname, _ := os.UserHomeDir()
-		path = filepath.Join(dirname, path[2:])
+func expandHome(path string) (expand string) {
+	if path[0] == '~' && path[1] != '/' {
+		path = "~/" + path[1:]
 	}
-	return path
+
+	if path[:2] == "~/" {
+		dirname, _ := os.UserHomeDir()
+		expand = dirname
+		if path != "~/" {
+			expand = filepath.Join(dirname, path[2:])
+		}
+		return
+	}
+	expand = path
+	return
 }
 
 func load(filename string) (err error) {
@@ -123,6 +103,8 @@ func load(filename string) (err error) {
 	config.PluginPath = expandHome(config.PluginPath)
 
 	switch config.LogLevel {
+	case "trace":
+		fallthrough
 	case "debug":
 		log.SetReportCaller(true)
 		log.SetLevel(log.DebugLevel)

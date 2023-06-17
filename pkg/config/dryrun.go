@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	m "github.com/mproffitt/importmanager/pkg/mime"
@@ -24,13 +23,6 @@ var (
 
 	watchedPaths []string = make([]string, 0)
 )
-
-type handler func(path string, details m.Details, processors []Processor, czb bool) (err error)
-
-type dryRun struct {
-	sync.RWMutex
-	paths map[string]string
-}
 
 func (d *dryRun) contains(t, what string) bool {
 	d.Lock()
