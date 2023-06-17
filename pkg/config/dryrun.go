@@ -1,6 +1,7 @@
 package config
 
 import (
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -12,6 +13,19 @@ import (
 	m "github.com/mproffitt/importmanager/pkg/mime"
 	log "github.com/sirupsen/logrus"
 )
+
+var (
+	dryrun *dryRun = &dryRun{
+		paths: make(map[string]string),
+	}
+
+	seededRand *rand.Rand = rand.New(
+		rand.NewSource(time.Now().UnixNano()))
+
+	watchedPaths []string = make([]string, 0)
+)
+
+type handler func(path string, details m.Details, processors []Processor, czb bool) (err error)
 
 type dryRun struct {
 	sync.RWMutex
@@ -28,9 +42,9 @@ func (d *dryRun) contains(t, what string) bool {
 }
 
 func (d *dryRun) clear() {
-	d.Lock()
+	d.RLock()
 	d.paths = make(map[string]string)
-	d.Unlock()
+	d.RUnlock()
 }
 
 func (d *dryRun) deletepath(path string) {
@@ -38,12 +52,6 @@ func (d *dryRun) deletepath(path string) {
 	delete(d.paths, path)
 	d.RUnlock()
 }
-
-var dryrun *dryRun = &dryRun{
-	paths: make(map[string]string),
-}
-
-var watchedPaths []string = make([]string, 0)
 
 // DryRun Executes a dry run on the current configuration
 //
@@ -54,12 +62,13 @@ var watchedPaths []string = make([]string, 0)
 //
 // This is not definitive, nor perfect as it cannot detect deeply nested recursion
 // but should catch the majority of cases.
-func DryRun(cnf *Config, handlePath handler) {
+func DryRun(cnf *Config) {
 	paths := cnf.Paths
 	for _, path := range paths {
 		watchedPaths = append(watchedPaths, path.Path)
 	}
 
+	var logoutput io.Writer = log.StandardLogger().Out
 	var i = 0
 	for {
 		var path = paths[0]
@@ -79,15 +88,14 @@ func DryRun(cnf *Config, handlePath handler) {
 			log.Infof("dry-run: Adding path %s for type %s", testPath, item.Type)
 			AddDryRunPath(item.Type, testPath)
 
-			var dt *m.Details = m.Catagories.FindCatagoryFor(testPath)
-			if dt != nil {
+			if dt := m.Catagories.FindCatagoryFor(testPath); dt != nil {
 				dt.DryRun = true
 				// trigger this path so it adds the entry for testing against
-				handlePath(testPath, *dt, path.Processors, false)
-				runTests(notCurrent(path, paths), handlePath)
+				cnf.pathHandler(testPath, *dt, path.Processors, false)
+				runTests(notCurrent(path, paths), cnf.pathHandler)
 			}
 		}
-		log.SetOutput(os.Stderr)
+		log.SetOutput(logoutput)
 
 		dryrun.clear()
 		paths = append(paths[1:], paths[0])
@@ -139,9 +147,6 @@ func DeleteDryRunPath(path string) {
 	dryrun.deletepath(path)
 }
 
-var seededRand *rand.Rand = rand.New(
-	rand.NewSource(time.Now().UnixNano()))
-
 func dryRunFilename(length int) string {
 	var (
 		charset string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -152,8 +157,6 @@ func dryRunFilename(length int) string {
 	}
 	return string(b)
 }
-
-type handler func(path string, details m.Details, processors []Processor, czb bool) (err error)
 
 func getDryRunItems() (d []*m.Details) {
 	d = make([]*m.Details, 0)
@@ -200,7 +203,7 @@ func notCurrent(path Path, paths []Path) (p []Path) {
 	return
 }
 
-func runTests(paths []Path, handlePath handler) {
+func runTests(paths []Path, pathHandler handler) {
 	for _, test := range paths {
 		for _, processor := range test.Processors {
 			log.Infof("Checking path %s processor %s", test.Path, processor.Type)
@@ -211,7 +214,7 @@ func runTests(paths []Path, handlePath handler) {
 				if dt != nil {
 					dt.DryRun = true
 					log.Infof("testing mime type %s on path %s", processor.Type, test.Path)
-					handlePath(item, *dt, test.Processors, false)
+					pathHandler(item, *dt, test.Processors, false)
 					dryrun.deletepath(item)
 				}
 			}

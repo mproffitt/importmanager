@@ -56,6 +56,7 @@ type Config struct {
 	BufferSize      int           `yaml:"bufferSize"`
 	LogLevel        string        `yaml:"logLevel"`
 	MimeDirectories []string      `yaml:"mimeDirectories"`
+	pathHandler     handler
 }
 
 // MaxRetries Maximum number of retries for operations
@@ -65,7 +66,8 @@ const MaxRetries = 100
 const DefaultBufferSize = 50
 
 // New Load the config file
-func New(configFile string) (c *Config, err error) {
+func New(configFile string, pathHandler handler) (c *Config, err error) {
+	config.pathHandler = pathHandler
 	c = &config
 	log.SetFormatter(&log.TextFormatter{
 		DisableColors: true,
@@ -95,8 +97,8 @@ func expandHome(path string) string {
 }
 
 func load(filename string) (err error) {
-	config.RLock()
-	defer config.RUnlock()
+	config.Lock()
+	defer config.Unlock()
 	pwd, _ := os.Getwd()
 	log.Infof("Loading config file %s/%s", pwd, filename)
 
@@ -135,7 +137,7 @@ func load(filename string) (err error) {
 	for i, p := range config.Paths {
 		config.Paths[i].Path = expandHome(p.Path)
 		for j, q := range p.Processors {
-			if string(q.Type[0]) == "!" {
+			if q.Type[0] == '!' {
 				q.Type = q.Type[1:]
 				q.Negated = true
 			}
@@ -151,6 +153,8 @@ func load(filename string) (err error) {
 			}
 		}
 	}
+
+	DryRun(&config)
 	log.Info("Done loading config file")
 	return
 }
@@ -176,8 +180,6 @@ func watch(ctx context.Context, filename string) {
 			// set up a new watch on the file to ensure we track further
 			// updates to it.
 			case n.Rename:
-				// Weird renaming bug that caused
-				// lstat to read /~ as filename
 				fallthrough
 			case n.Remove:
 				var i int = 0

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Add dry run functionality. See README.md for details
+- Add dry run functionality. See [README.md](./README.md) for details
 - Add functionality to negate types
 - Add `compare-sha` functionality
 
