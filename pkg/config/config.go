@@ -7,10 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	m "github.com/mproffitt/importmanager/pkg/mime"
-	n "github.com/rjeczalik/notify"
 	log "github.com/sirupsen/logrus"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -59,20 +57,18 @@ func IsBuiltIn(plugin string) bool {
 	return false
 }
 
-func expandHome(path string) (expand string) {
-	if path[0] == '~' && path[1] != '/' {
-		path = "~/" + path[1:]
+func expandHome(path *string) {
+	var p string = (*path)
+	if p[0] == '~' && p[1] != '/' {
+		p = "~/" + p[1:]
 	}
 
-	if path[:2] == "~/" {
+	if p[:2] == "~/" {
 		dirname, _ := os.UserHomeDir()
-		expand = dirname
-		if path != "~/" {
-			expand = filepath.Join(dirname, path[2:])
-		}
-		return
+		p = filepath.Join(dirname, p[2:])
 	}
-	expand = path
+
+	*path = p
 	return
 }
 
@@ -91,8 +87,8 @@ func load(filename string) (err error) {
 		return
 	}
 
-	for i, p := range config.MimeDirectories {
-		config.MimeDirectories[i] = expandHome(p)
+	for i := range config.MimeDirectories {
+		expandHome(&config.MimeDirectories[i])
 	}
 	m.Load(config.MimeDirectories)
 
@@ -100,7 +96,7 @@ func load(filename string) (err error) {
 		config.BufferSize = DefaultBufferSize
 	}
 
-	config.PluginPath = expandHome(config.PluginPath)
+	expandHome(&config.PluginPath)
 
 	switch config.LogLevel {
 	case "trace":
@@ -117,15 +113,16 @@ func load(filename string) (err error) {
 	}
 
 	for i, p := range config.Paths {
-		config.Paths[i].Path = expandHome(p.Path)
+		expandHome(&config.Paths[i].Path)
 		for j, q := range p.Processors {
 			if q.Type[0] == '!' {
 				q.Type = q.Type[1:]
 				q.Negated = true
 			}
-			config.Paths[i].Processors[j].Path = expandHome(q.Path)
+			expandHome(&config.Paths[i].Processors[j].Path)
 			for k, v := range q.Properties {
-				config.Paths[i].Processors[j].Properties[k] = expandHome(v)
+				expandHome(&v)
+				config.Paths[i].Processors[j].Properties[k] = v
 			}
 			if config.PluginPath != "" && !IsBuiltIn(q.Handler) {
 				var handler string = filepath.Join(config.PluginPath, q.Handler)
@@ -139,62 +136,4 @@ func load(filename string) (err error) {
 	DryRun(&config)
 	log.Info("Done loading config file")
 	return
-}
-
-func watch(ctx context.Context, filename string) {
-	log.Infof("Setting up watch for config file %s", filename)
-	events := n.Remove | n.Write | n.InModify | n.InCloseWrite
-	c := make(chan n.EventInfo, 1)
-	if err := n.Watch(filename, c, events); err != nil {
-		log.Fatal(err)
-	}
-	defer n.Stop(c)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case ei := <-c:
-			switch ei.Event() {
-			// VIM is a special case and renames / removes the old buffer
-			// and recreates a new one in place. This means we need to
-			// set up a new watch on the file to ensure we track further
-			// updates to it.
-			case n.Rename:
-				fallthrough
-			case n.Remove:
-				var i int = 0
-				for {
-					if _, err := os.Stat(filename); err == nil {
-						break
-					}
-					if i == MaxRetries {
-						// If we got here and the config wasn't recreted
-						// create it with the last known config values
-						data, _ := yaml.Marshal(&config)
-						ioutil.WriteFile(filename, data, 0)
-						break
-					}
-					i++
-					<-time.After(1 * time.Millisecond)
-				}
-				n.Stop(c)
-				if err := n.Watch(filename, c, events); err != nil {
-					log.Println(err)
-				}
-				defer n.Stop(c)
-				fallthrough
-			case n.Write:
-				fallthrough
-			case n.InModify:
-				fallthrough
-			case n.InCloseWrite:
-				if err := load(filename); err != nil {
-					log.Fatal("Unable to load config file", err)
-					return
-				}
-			}
-		}
-	}
 }
