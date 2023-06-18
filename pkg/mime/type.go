@@ -2,15 +2,22 @@ package mime
 
 import (
 	"io/ioutil"
-	"path"
 	"path/filepath"
+	re "regexp"
 	"strings"
 )
 
 // GlobMatches Test if the file extension matches one of the globs defined for this type
 func (m *Type) GlobMatches(what string) bool {
+	var (
+		matcher *re.Regexp
+		err     error
+	)
 	for _, v := range m.Globs {
-		if strings.EqualFold(path.Ext(what), strings.Replace(v.Pattern, "*", "", 1)) {
+		if matcher, err = re.Compile("(?i)^." + v.Pattern + "$"); err != nil {
+			continue
+		}
+		if matcher.Match([]byte(what)) {
 			return true
 		}
 	}

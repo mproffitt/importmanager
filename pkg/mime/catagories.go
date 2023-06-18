@@ -25,6 +25,7 @@ func (c catagories) FindCatagoryFor(what string) (details *Details) {
 				matched = true
 			}
 
+			// some types will match on this but there may be better types...
 			if item.GlobMatches(what) {
 				details.Extension = path.Ext(what)
 				matched = true
