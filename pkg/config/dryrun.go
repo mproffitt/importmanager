@@ -1,12 +1,13 @@
 package config
 
 import (
-	"io"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	m "github.com/mproffitt/importmanager/pkg/mime"
@@ -59,43 +60,65 @@ func DryRun(cnf *Config) {
 	for _, path := range paths {
 		watchedPaths = append(watchedPaths, path.Path)
 	}
+	log.Infof("Preparing dry run for %d paths", len(watchedPaths))
+	log.SetOutput(ioutil.Discard)
 
-	var logoutput io.Writer = log.StandardLogger().Out
-	var i = 0
-	for {
-		var path = paths[0]
-		var dritems = getDryRunItems()
-		log.Infof("Starting dryrun %d (path %s)", i, path.Path)
-		log.SetOutput(ioutil.Discard)
-		for _, item := range dritems {
-			var testPath string = GetDryRunPath(item.Type, path.Path, item.Extension)
-			if testPath != "" {
-				// Previous path should have been tested already and we're on a similar type
-				dryrun.Lock()
-				delete(dryrun.paths, item.Type)
-				dryrun.Unlock()
-			}
-			testPath = filepath.Join(path.Path, dryRunFilename(10)+item.Extension)
-
-			log.Infof("dry-run: Adding path %s for type %s", testPath, item.Type)
-			AddDryRunPath(item.Type, testPath)
-
-			if dt := m.Catagories.FindCatagoryFor(testPath); dt != nil {
-				dt.DryRun = true
-				// trigger this path so it adds the entry for testing against
-				cnf.pathHandler(testPath, *dt, path.Processors, false)
-				runTests(notCurrent(path, paths), cnf.pathHandler)
-			}
-		}
-		log.SetOutput(logoutput)
-
-		dryrun.clear()
-		paths = append(paths[1:], paths[0])
-		if i == len(paths)-1 {
-			break
-		}
-		i++
+	var (
+		completed int       = len(cnf.Paths)
+		done      chan bool = make(chan bool)
+	)
+	for i, path := range cnf.Paths {
+		go executeDryRun(i, path, cnf, done)
 	}
+	for completed > 0 {
+		select {
+		case <-done:
+			completed--
+		}
+	}
+}
+
+var loggingLock sync.Mutex
+
+func dryrunLog(msg string, args ...interface{}) {
+	// To prevent race conditions between threads when changing log output
+	// lock temporarily
+	loggingLock.Lock()
+	defer loggingLock.Unlock()
+
+	log.SetOutput(log.StandardLogger().Out)
+	log.Infof(msg, args...)
+	log.SetOutput(ioutil.Discard)
+}
+
+func executeDryRun(index int, path Path, cnf *Config, done chan bool) {
+	var dritems = getDryRunItems()
+	dryrunLog("Starting dryrun %d (path %s)", index, path.Path)
+
+	for _, item := range dritems {
+		var testPath string = GetDryRunPath(item.Type, path.Path, item.Extension)
+		if testPath != "" {
+			// Previous path should have been tested already and we're on a similar type
+			dryrun.Lock()
+			delete(dryrun.paths, item.Type)
+			dryrun.Unlock()
+		}
+		testPath = filepath.Join(path.Path, dryRunFilename(10)+item.Extension)
+
+		fmt.Println("hello world")
+		dryrunLog("dry-run: Adding path %s for type %s", testPath, item.Type)
+		AddDryRunPath(item.Type, testPath)
+
+		if dt := m.Catagories.FindBestMatchFor(testPath); dt != nil {
+			dt.DryRun = true
+			// trigger this path so it adds the entry for testing against
+			cnf.pathHandler(testPath, *dt, path.Processors, false)
+			runTests(notCurrent(path, cnf.Paths), cnf.pathHandler)
+		}
+	}
+
+	dryrun.clear()
+	done <- true
 }
 
 // AddDryRunPath Adds a path to the dry-run set. Fatal error if path already exists
@@ -152,19 +175,22 @@ func dryRunFilename(length int) string {
 
 func getDryRunItems() (d []*m.Details) {
 	d = make([]*m.Details, 0)
-	for _, items := range m.Catagories {
+	for k, items := range m.Catagories {
 		for _, item := range items {
-			dt := m.Catagories.FindCatagoryFor(item.Type)
-			dt.DryRun = true
-			var found bool = false
-			for _, v := range d {
-				if v.Type == dt.Type {
-					found = true
-				}
+			dt := m.Details{
+				Catagory: k,
+				SubClass: make([]string, 0),
+				Type:     item.Type,
+				DryRun:   true,
 			}
-			if !found {
-				d = append(d, dt)
+			if len(item.Globs) > 0 {
+				dt.Extension = item.Globs[0].Pattern[1:]
 			}
+			for _, sc := range item.SubClass {
+				dt.SubClass = append(dt.SubClass, sc.Type)
+			}
+
+			d = append(d, &dt)
 		}
 	}
 	return
@@ -202,7 +228,7 @@ func runTests(paths []Path, pathHandler handler) {
 			items := getDryRunPathsForType(test.Path, processor.Type)
 			log.Infof("dry-run: found %d items for type %s", len(items), processor.Type)
 			for _, item := range items {
-				var dt *m.Details = m.Catagories.FindCatagoryFor(item)
+				var dt *m.Details = m.Catagories.FindBestMatchFor(item)
 				if dt != nil {
 					dt.DryRun = true
 					log.Infof("testing mime type %s on path %s", processor.Type, test.Path)

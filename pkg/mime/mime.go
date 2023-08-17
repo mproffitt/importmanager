@@ -11,18 +11,14 @@ import (
 var Catagories catagories
 
 // SplitPathByMime splits a path into component parts dir, basename, extension
-func SplitPathByMime(filename string) (dirname, basename, extensions string) {
+func SplitPathByMime(filename string) (dirname, basename, extension string) {
 	dirname, basename = path.Split(filename)
-	var tmp string = basename
-	for {
-		var d *Details
-		if d = Catagories.FindCatagoryFor(tmp); d == nil {
-			break
-		}
-		tmp = tmp[:len(tmp)-len(d.Extension)]
-		extensions = d.Extension + extensions
+	if d := Catagories.FindBestMatchFor(filename); d != nil {
+		extension = d.Extension
 	}
-	basename = basename[:len(basename)-len(extensions)]
+	var fnlen int = len(basename) - len(extension)
+	extension = basename[fnlen:]
+	basename = basename[:fnlen]
 	return
 }
 
@@ -36,4 +32,5 @@ func Load(paths []string) {
 		}
 		loadTypes(p)
 	}
+	log.Info("Finished loading catagories")
 }

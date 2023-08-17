@@ -35,6 +35,7 @@ paths:
       - type: image/jpeg
         handler: move
         path: ~/Imágenes/final/jpg/{{.date}}
+        # path: ~/Descargas
       - type: image/png
         handler: move
         path: ~/Imágenes/final/png/{{.date}}

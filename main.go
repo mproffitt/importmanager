@@ -55,12 +55,12 @@ func main() {
 	flag.Parse()
 	if _, err = os.Stat(filename); err != nil || filename == "" {
 		log.Fatalf("config file must be provided and must exist")
-		os.Exit(1)
+		return
 	}
 
-	if config, err = c.New(filename, h.Handle); err != nil {
+	if config, err = c.New(filename, h.Handle, true); err != nil {
 		log.Fatalf("Config file is invalid or doesn't exist. %q", err)
-		os.Exit(1)
+		return
 	}
 
 	var notifications chan string = make(chan string)

@@ -59,7 +59,7 @@ func Process(source string, details *mime.Details, processor *c.Processor) (err 
 
 	var final string
 	log.Infof("Checking processor type '%s'", processor.Handler)
-	if c.IsBuiltIn(processor.Handler) {
+	if c.DefaultHandlers.IsBuiltIn(processor.Handler) {
 		log.Info("Using builtin handler")
 		if final, err = builtIn(source, dest, details, processor); err != nil {
 			return

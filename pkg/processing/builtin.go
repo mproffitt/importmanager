@@ -183,13 +183,15 @@ func sha256Equal(source, dest string) bool {
 func getSha256(filename string) string {
 	f, err := os.Open(filename)
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		return ""
 	}
 	defer f.Close()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		return ""
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))

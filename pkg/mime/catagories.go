@@ -3,51 +3,74 @@ package mime
 import (
 	"encoding/xml"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
 )
 
-func (c catagories) FindCatagoryFor(what string) (details *Details) {
-	details = &Details{}
-	details.SubClass = make([]string, 0)
-	for k, v := range c {
-		details.Catagory = k
+func (c *catagories) FindBestMatchFor(what string) (details *Details) {
+	var (
+		lastlen int = 0
+		d       []Details
+	)
+
+	if d = c.FindAllMatchesFor(what); d != nil || len(d) > 0 {
+		for i, test := range d {
+			if len(test.Extension) > lastlen {
+				lastlen = len(test.Extension)
+				details = &d[i]
+			}
+		}
+	}
+	return
+}
+
+// FindAllMatchesFor Find all catagories that match the given filename
+//
+// Arguments:
+// - what string The filename or mime type to test
+//
+// Return
+//
+// - []Details a list of mime.Details about each matched mime type
+//
+func (c *catagories) FindAllMatchesFor(what string) (details []Details) {
+	details = make([]Details, 0)
+	for k, v := range *c {
 		for _, item := range v {
 			var matched bool = false
-			details.Type = item.Type
-			if strings.EqualFold(item.Type, what) || item.AliasMatches(what) {
-				if len(item.Globs) > 0 {
-					details.Extension = strings.Replace(item.Globs[0].Pattern, "*", "", 1)
-				}
-				matched = true
+			var d Details = Details{
+				SubClass: make([]string, 0),
+				Catagory: k,
+				Type:     item.Type,
 			}
-
-			// some types will match on this but there may be better types...
-			if item.GlobMatches(what) {
-				details.Extension = path.Ext(what)
+			if strings.EqualFold(item.Type, what) || item.AliasMatches(what) {
 				matched = true
+				if len(item.Globs) > 0 {
+					d.Extension = strings.Replace(item.Globs[0].Pattern, "*", "", 1)
+				}
+			} else if matches, match := item.GlobMatches("." + what); matches {
+				matched = true
+				d.Extension = strings.Replace(match, "*", "", 1)
 			}
 			if matched {
 				for _, sc := range item.SubClass {
-					details.SubClass = append(details.SubClass, sc.Type)
+					d.SubClass = append(d.SubClass, sc.Type)
 				}
-				return
+				details = append(details, d)
 			}
-
 		}
 	}
 
-	if details.Catagory == what {
+	if len(details) > 0 {
 		return
 	}
 
 	// If we haven't got a match, check magic
 	if _, err := os.Stat(what); err == nil {
 		if mtype, err := mimetype.DetectFile(what); err == nil {
-			return c.FindCatagoryFor(mtype.String())
+			return c.FindAllMatchesFor(mtype.String())
 		}
 	}
 	return nil

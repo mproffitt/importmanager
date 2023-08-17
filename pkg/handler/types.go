@@ -5,14 +5,12 @@ import (
 	"time"
 
 	c "github.com/mproffitt/importmanager/pkg/config"
-	m "github.com/mproffitt/importmanager/pkg/mime"
 	"github.com/rjeczalik/notify"
 )
 
 type event struct {
-	event   notify.Event
-	time    time.Time
-	details m.Details
+	event notify.Event
+	time  time.Time
 }
 
 type watch struct {
@@ -23,7 +21,6 @@ type watch struct {
 
 type job struct {
 	path       string
-	details    m.Details
 	processors []c.Processor
 	czb        bool
 	ready      bool

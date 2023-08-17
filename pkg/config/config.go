@@ -13,8 +13,10 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+type defaultHandlers []string
+
 // DefaultHandlers a set of valid handler
-var DefaultHandlers []string = []string{
+var DefaultHandlers defaultHandlers = defaultHandlers{
 	"copy",
 	"move",
 	"extract",
@@ -22,7 +24,15 @@ var DefaultHandlers []string = []string{
 	"delete",
 }
 
-var config Config
+// IsBuiltIn Test if the given processor is a builtin processor
+func (d *defaultHandlers) IsBuiltIn(plugin string) bool {
+	for _, p := range *d {
+		if strings.EqualFold(plugin, p) {
+			return true
+		}
+	}
+	return false
+}
 
 func (p *Processor) String() string {
 	return fmt.Sprintf("%s (%s)", p.Handler, p.Type)
@@ -34,27 +44,32 @@ const MaxRetries = 100
 // DefaultBufferSize When not set, the jobs buffer will be this size
 const DefaultBufferSize = 50
 
-// New Load the config file
-func New(configFile string, pathHandler handler) (c *Config, err error) {
-	config.pathHandler = pathHandler
-	c = &config
+// New Create a new Config object
+//
+// Arguments:
+//
+// - configFile  string  The full path to the config file to load
+// - pathHandler handler A custom function of type handler to call during dry-run
+// - autoReload  bool    If true, sets up watches on the config file and  automatically reloads it when it changes
+//
+// Return:
+//
+// - *Config A pointer to the loaded configuration
+// - error   The last error which occured during loading
+func New(configFile string, pathHandler handler, autoReload bool) (c *Config, err error) {
+	c = &Config{
+		pathHandler: pathHandler,
+	}
+
 	log.SetFormatter(&log.TextFormatter{
 		DisableColors: true,
 		FullTimestamp: true,
 	})
-	go watch(context.Background(), configFile)
-	err = load(configFile)
-	return
-}
-
-// IsBuiltIn Test if the given processor is a builtin processor
-func IsBuiltIn(plugin string) bool {
-	for _, p := range DefaultHandlers {
-		if strings.EqualFold(plugin, p) {
-			return true
-		}
+	if autoReload {
+		go c.watch(context.Background(), configFile)
 	}
-	return false
+	err = c.load(configFile)
+	return
 }
 
 func expandHome(path *string) {
@@ -72,9 +87,9 @@ func expandHome(path *string) {
 	return
 }
 
-func load(filename string) (err error) {
-	config.Lock()
-	defer config.Unlock()
+func (c *Config) load(filename string) (err error) {
+	c.Lock()
+	defer c.Unlock()
 	pwd, _ := os.Getwd()
 	log.Infof("Loading config file %s/%s", pwd, filename)
 
@@ -83,22 +98,51 @@ func load(filename string) (err error) {
 		return
 	}
 
-	if err = yaml.Unmarshal(f, &config); err != nil {
+	if err = yaml.Unmarshal(f, c); err != nil {
 		return
 	}
 
-	for i := range config.MimeDirectories {
-		expandHome(&config.MimeDirectories[i])
+	for i := range c.MimeDirectories {
+		expandHome(&c.MimeDirectories[i])
 	}
-	m.Load(config.MimeDirectories)
+	m.Load(c.MimeDirectories)
 
-	if config.BufferSize == 0 {
-		config.BufferSize = DefaultBufferSize
+	if c.BufferSize == 0 {
+		c.BufferSize = DefaultBufferSize
 	}
 
-	expandHome(&config.PluginPath)
+	expandHome(&c.PluginPath)
 
-	switch config.LogLevel {
+	c.setupLogging()
+	for i, p := range c.Paths {
+		expandHome(&c.Paths[i].Path)
+		for j, q := range p.Processors {
+			if q.Type[0] == '!' {
+				q.Type = q.Type[1:]
+				q.Negated = true
+			}
+			expandHome(&c.Paths[i].Processors[j].Path)
+			for k, v := range q.Properties {
+				expandHome(&v)
+				c.Paths[i].Processors[j].Properties[k] = v
+			}
+			if c.PluginPath != "" && !DefaultHandlers.IsBuiltIn(q.Handler) {
+				var handler string = filepath.Join(c.PluginPath, q.Handler)
+				if _, err = os.Stat(handler); !os.IsNotExist(err) {
+					c.Paths[i].Processors[j].Handler = handler
+				}
+			}
+		}
+	}
+
+	// log.Info("Starting dry run validation")
+	// DryRun(c)
+	log.Info("Done loading config file")
+	return
+}
+
+func (c *Config) setupLogging() {
+	switch c.LogLevel {
 	case "trace":
 		fallthrough
 	case "debug":
@@ -111,29 +155,4 @@ func load(filename string) (err error) {
 	default:
 		log.SetLevel(log.InfoLevel)
 	}
-
-	for i, p := range config.Paths {
-		expandHome(&config.Paths[i].Path)
-		for j, q := range p.Processors {
-			if q.Type[0] == '!' {
-				q.Type = q.Type[1:]
-				q.Negated = true
-			}
-			expandHome(&config.Paths[i].Processors[j].Path)
-			for k, v := range q.Properties {
-				expandHome(&v)
-				config.Paths[i].Processors[j].Properties[k] = v
-			}
-			if config.PluginPath != "" && !IsBuiltIn(q.Handler) {
-				var handler string = filepath.Join(config.PluginPath, q.Handler)
-				if _, err = os.Stat(handler); !os.IsNotExist(err) {
-					config.Paths[i].Processors[j].Handler = handler
-				}
-			}
-		}
-	}
-
-	DryRun(&config)
-	log.Info("Done loading config file")
-	return
 }

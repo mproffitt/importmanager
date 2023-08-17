@@ -14,6 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const Partial string = "application/x-partial-download"
+
 func contains(what string, where []string) bool {
 	for _, p := range where {
 		if what == p {
@@ -159,132 +161,133 @@ func Handle(path string, details m.Details, processors []c.Processor, czb bool) 
 
 func watchLocation(path *c.Path, channel watch, config *c.Config, notifications chan string) {
 	var (
-		active        []bool
-		wg            sync.WaitGroup
-		jobs          chan job    = make(chan job)
-		activeWorkers []chan bool = make([]chan bool, 0)
-		events        lockable    = lockable{
+		wg         sync.WaitGroup
+		jobs       chan job  = make(chan job, config.BufferSize)
+		stopEvents chan bool = make(chan bool)
+		events     lockable  = lockable{
 			paths: make(map[string]event),
 		}
-		notifyOnComplete bool = false
 	)
 
 	for i := 0; i < config.BufferSize; i++ {
 		wg.Add(1)
 		log.Debugf("Starting %s worker %d", path.Path, i)
-		activeWorkers = append(activeWorkers, make(chan bool))
-		go pathWorker(jobs, activeWorkers[len(activeWorkers)-1], &wg)
+		go pathWorker(jobs, &wg)
 	}
 
-	active = make([]bool, len(activeWorkers))
-
-	if err := notify.Watch(path.Path, channel.events, notify.All); err != nil {
+	ev := notify.All | notify.InCloseWrite | notify.InModify
+	if err := notify.Watch(path.Path, channel.events, ev); err != nil {
 		log.Fatalf("Failed to set up watch for path %s - %s", path.Path, err.Error())
 		return
 	}
 
 	log.Info("Starting listening to: ", path.Path)
-
-	var finished bool = false
-	for {
-		select {
-		case ei := <-channel.events:
-			switch ei.Event() {
-			case notify.Remove:
-				events.RLock()
-				delete(events.paths, ei.Path())
-				events.RUnlock()
-			default:
-				var details = m.Catagories.FindCatagoryFor(ei.Path())
-				if _, err := os.Stat(ei.Path()); err != nil || details == nil {
-					continue
-				}
-				if details.Type != "application/x-partial-download" {
+	go func(done chan bool) {
+		defer close(done)
+		for {
+			select {
+			case ei := <-channel.events:
+				switch ei.Event() {
+				case notify.Remove:
+					events.RLock()
+					delete(events.paths, ei.Path())
+					events.RUnlock()
+				default:
+					if _, err := os.Stat(ei.Path()); err != nil {
+						continue
+					}
 					events.RLock()
 					events.paths[ei.Path()] = event{
-						event:   ei.Event(),
-						time:    time.Now(),
-						details: *details,
+						event: ei.Event(),
+						time:  time.Now(),
 					}
 					events.RUnlock()
-					notifyOnComplete = true
 				}
+			case <-done:
+				return
 			}
+		}
+	}(stopEvents)
+
+	for {
+		select {
 		case <-channel.stop:
 			log.Infof("Shutting down listener for path %s", path.Path)
-			for {
-				// Wait for all jobs to finish
-				if a, _ := allFinished(active, activeWorkers); a {
-					log.Info("All jobs finished")
-					close(jobs)
-					break
-				}
-				<-time.After(1 * time.Millisecond)
+			for i := 0; i < config.BufferSize; i++ {
+				jobs <- job{ready: false}
 			}
-			log.Debug("Waiting for all goroutines to close")
 			wg.Wait()
+			stopEvents <- true
+
+			close(jobs)
 			log.Debug("All goroutines closed")
 			notify.Stop(channel.events)
 			channel.complete <- true
+			return
+		default:
+			events.Lock()
+			eventLen, paths := eventPaths(events.paths)
+			events.Unlock()
+			var available int = cap(jobs) - len(jobs)
 
-		case <-time.After(1 * time.Second):
-			finished, active = allFinished(active, activeWorkers)
+			// If theres nothing to do or no capacity, sleep
+			if eventLen == 0 || available == 0 {
+				<-time.After(10 * time.Millisecond)
+				continue
+			}
 
-			go func() {
+			if available < eventLen {
+				paths = paths[:available]
+			}
+
+			for _, p := range paths {
 				events.Lock()
-				for p, e := range events.paths {
-					if e.time.Before(time.Now().Add(-config.DelayInSeconds * time.Second)) {
-						delete(events.paths, p)
-						log.Debugf("Creating job for path '%s'", p)
-						jobs <- job{
-							path:       p,
-							details:    e.details,
-							processors: path.Processors,
-							czb:        config.CleanupZeroByte,
-							ready:      true,
-						}
+				eventTime := events.paths[p].time
+				events.Unlock()
+				if eventTime.Before(time.Now().Add(-(config.DelayInSeconds * time.Second))) {
+					events.RLock()
+					delete(events.paths, p)
+					events.RUnlock()
+
+					log.Infof("Creating job for path '%s'", p)
+					jobs <- job{
+						path:       p,
+						processors: path.Processors,
+						czb:        config.CleanupZeroByte,
+						ready:      true,
 					}
 				}
-				events.Unlock()
+			}
 
-				if len(events.paths) == 0 && notifyOnComplete && finished {
-					notifyOnComplete = false
-					notifications <- fmt.Sprintf("Processing for path %s completed.", path.Path)
-				}
-			}()
+			if len(events.paths) == 0 && available == config.BufferSize {
+				notifications <- fmt.Sprintf("Processing for path %s completed.", path.Path)
+			}
 		}
 	}
 }
 
-func allFinished(active []bool, activeWorkers []chan bool) (bool, []bool) {
-	for i := 0; i < len(activeWorkers); i++ {
-		select {
-		case a := <-activeWorkers[i]:
-			active[i] = a
-		default:
-			continue
-		}
+func eventPaths(events map[string]event) (length int, paths []string) {
+	for p := range events {
+		paths = append(paths, p)
 	}
-
-	for _, b := range active {
-		if b {
-			log.Debug("Found an active worker")
-			return false, active
-		}
-	}
-	return true, active
+	length = len(paths)
+	return
 }
 
-func pathWorker(jobs chan job, running chan bool, wg *sync.WaitGroup) {
+func pathWorker(jobs chan job, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		var j job = <-jobs
 		if !j.ready {
+			log.Info("Shutting down worker")
 			return
 		}
-		log.Infof("received job %s)", j.path)
-		running <- true
-		Handle(j.path, j.details, j.processors, j.czb)
-		running <- false
+		var details = m.Catagories.FindBestMatchFor(j.path)
+		if details != nil && details.Type != Partial {
+			log.Infof("Starting processing path %s", j.path)
+			Handle(j.path, *details, j.processors, j.czb)
+			log.Infof("Finished processing path %s", j.path)
+		}
+
 	}
 }

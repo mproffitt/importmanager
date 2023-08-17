@@ -11,21 +11,21 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-func watch(ctx context.Context, filename string) {
+func (c *Config) watch(ctx context.Context, filename string) {
 	log.Infof("Setting up watch for config file %s", filename)
 	events := n.Remove | n.Write | n.InModify | n.InCloseWrite
-	c := make(chan n.EventInfo, 1)
-	if err := n.Watch(filename, c, events); err != nil {
+	channel := make(chan n.EventInfo, 1)
+	if err := n.Watch(filename, channel, events); err != nil {
 		log.Fatal(err)
 	}
-	defer n.Stop(c)
+	defer n.Stop(channel)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case ei := <-c:
+		case ei := <-channel:
 			switch ei.Event() {
 			// VIM is a special case and renames / removes the old buffer
 			// and recreates a new one in place. This means we need to
@@ -42,25 +42,25 @@ func watch(ctx context.Context, filename string) {
 					if i == MaxRetries {
 						// If we got here and the config wasn't recreted
 						// create it with the last known config values
-						data, _ := yaml.Marshal(&config)
+						data, _ := yaml.Marshal(c)
 						ioutil.WriteFile(filename, data, 0)
 						break
 					}
 					i++
 					<-time.After(1 * time.Millisecond)
 				}
-				n.Stop(c)
-				if err := n.Watch(filename, c, events); err != nil {
+				n.Stop(channel)
+				if err := n.Watch(filename, channel, events); err != nil {
 					log.Println(err)
 				}
-				defer n.Stop(c)
+				defer n.Stop(channel)
 				fallthrough
 			case n.Write:
 				fallthrough
 			case n.InModify:
 				fallthrough
 			case n.InCloseWrite:
-				if err := load(filename); err != nil {
+				if err := c.load(filename); err != nil {
 					log.Fatal("Unable to load config file", err)
 					return
 				}

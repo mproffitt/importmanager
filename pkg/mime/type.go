@@ -8,20 +8,20 @@ import (
 )
 
 // GlobMatches Test if the file extension matches one of the globs defined for this type
-func (m *Type) GlobMatches(what string) bool {
+func (m *Type) GlobMatches(what string) (bool, string) {
 	var (
 		matcher *re.Regexp
 		err     error
 	)
 	for _, v := range m.Globs {
-		if matcher, err = re.Compile("(?i)^." + v.Pattern + "$"); err != nil {
+		if matcher, err = re.Compile("(?i)^." + strings.ReplaceAll(v.Pattern, ".", "\\.") + "$"); err != nil {
 			continue
 		}
 		if matcher.Match([]byte(what)) {
-			return true
+			return true, v.Pattern
 		}
 	}
-	return false
+	return false, ""
 }
 
 // AliasMatches Test if the file extension matches one of the globs defined for this type
