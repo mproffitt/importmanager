@@ -20,7 +20,7 @@ require (
 	github.com/klauspost/compress v1.15.13 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect
-	golang.org/x/net v0.8.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22 // indirect
 )
